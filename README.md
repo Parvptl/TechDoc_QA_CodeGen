@@ -1,1 +1,1 @@
-# TechDoc_QA_CodeGen
+An intelligent Question-Answering system for technical documentation with context-aware code generation. Combines Retrieval-Augmented Generation (RAG) with transformer-based models to help developers find relevant documentation and generate working code snippets from natural language queries.
