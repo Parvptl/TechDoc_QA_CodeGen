@@ -1,0 +1,6 @@
+# Create .gitkeep files for directories you want to track but keep empty
+touch data/raw/.gitkeep
+touch data/processed/.gitkeep
+touch data/embeddings/.gitkeep
+touch models/.gitkeep
+touch logs/.gitkeep
