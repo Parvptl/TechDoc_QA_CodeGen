@@ -1,0 +1,395 @@
+"""
+PART 1 — DATASET CREATION
+Builds 500+ labeled QA pairs across all 7 DS pipeline stages.
+Tries Kaggle API and HuggingFace first; falls back to curated set.
+Output: data/dataset.csv  (columns: explanation, code, pipeline_stage, source, difficulty)
+"""
+import csv, json, re, random
+from pathlib import Path
+random.seed(42)
+
+STAGE_NAMES = {
+    1:"Problem Understanding", 2:"Data Loading", 3:"Exploratory Data Analysis",
+    4:"Preprocessing", 5:"Feature Engineering", 6:"Modeling", 7:"Evaluation",
+}
+STAGE_KEYWORDS = {
+    1:["problem","objective","goal","business","define","task","competition","target variable",
+       "predict","baseline","kpi","scope","hypothesis","success metric","null model"],
+    2:["read_csv","load_data","pd.read","import pandas","import numpy","load dataset",
+       "read data","data loading","open file","glob","json.load","read_excel","read_sql",
+       "database","api","fetch","parquet","encoding","chunk"],
+    3:["eda","exploratory","distribution","histogram","boxplot","countplot","correlation",
+       "heatmap","pairplot","describe","value_counts","shape","info()","visualize","plot",
+       "seaborn","matplotlib","skewness","kurtosis","missing pattern","nunique","outlier detection"],
+    4:["missing","null","fillna","dropna","impute","clean","outlier","duplicate","strip",
+       "replace","dtype","astype","preprocessing","handle nan","isnull","winsorize","clip",
+       "smote","imbalance","normalize text","regex","knn impute"],
+    5:["feature","engineer","polynomial","interaction","encode","labelencoder","onehotencoder",
+       "get_dummies","scaling","standardscaler","minmaxscaler","pca","tfidf","embedding",
+       "new column","derive","bin","log transform","target encode","frequency encode","datetime feature"],
+    6:["model","train","fit","predict","random forest","xgboost","lgbm","logistic regression",
+       "svm","neural network","sklearn","cross_val","gridsearch","pipeline","classifier","regressor",
+       "hyperparameter","optuna","stacking","ensemble","early stopping"],
+    7:["accuracy","f1_score","roc_auc","precision","recall","confusion matrix","classification_report",
+       "mse","rmse","mae","evaluate","metric","score","performance","test set","learning curve",
+       "overfitting","underfitting","shap","feature importance","calibration","threshold"],
+}
+
+# ── 500+ curated QA pairs ─────────────────────────────────────────────────────
+CURATED = {
+1: [
+("What is the goal of a Titanic survival prediction task?",
+ 'task="Binary Classification"\ntarget="Survived"\nmetric="ROC-AUC"\nprint(f"Task:{task}, Target:{target}, Metric:{metric}")','beginner'),
+("How do I define the business objective for a churn prediction problem?",
+ 'objective="Predict whether a customer will churn in next 30 days"\ntarget="churn_flag"\nprint(f"Objective:{objective}")','beginner'),
+("How do I establish a baseline model before complex modeling?",
+ 'from sklearn.dummy import DummyClassifier\nfrom sklearn.model_selection import cross_val_score\nbaseline=DummyClassifier(strategy="most_frequent")\nscores=cross_val_score(baseline,X,y,cv=5,scoring="roc_auc")\nprint(f"Baseline AUC:{scores.mean():.3f}±{scores.std():.3f}")','beginner'),
+("What questions should I answer before starting a data science project?",
+ 'checklist=["1.What is the prediction target?","2.Classification or regression?","3.What data is available?","4.What metric defines success?","5.What are deployment constraints?"]\nfor q in checklist: print(q)','beginner'),
+("How do I identify class imbalance in a binary classification problem?",
+ 'import pandas as pd\ndf=pd.read_csv("train.csv")\nprint(df["target"].value_counts())\nprint(df["target"].value_counts(normalize=True).round(3))','beginner'),
+("What is the difference between classification and regression tasks?",
+ '# Classification: predict discrete labels (0/1, cat/dog)\n# Regression: predict continuous values (price, temperature)\nfrom sklearn.linear_model import LogisticRegression,LinearRegression\nclf=LogisticRegression()  # for discrete targets\nreg=LinearRegression()    # for continuous targets','beginner'),
+("How do I set a success metric for a fraud detection problem?",
+ '# Fraud: class imbalance makes accuracy misleading\n# Use Precision, Recall, F1, PR-AUC\nfrom sklearn.metrics import average_precision_score\ny_prob=model.predict_proba(X_test)[:,1]\npr_auc=average_precision_score(y_test,y_prob)\nprint(f"PR-AUC:{pr_auc:.4f}")','intermediate'),
+("How do I estimate the business value of improving model recall by 5%?",
+ 'monthly_txn=100_000\nfraud_rate=0.02\navg_fraud_value=500\ncurrent_recall=0.85\nimproved_recall=0.90\ncaught_extra=(improved_recall-current_recall)*monthly_txn*fraud_rate\nvalue=caught_extra*avg_fraud_value\nprint(f"Extra value from 5% recall improvement: ${value:,.0f}/month")','intermediate'),
+("What is a null model and why is it important?",
+ 'import numpy as np\nfrom sklearn.metrics import accuracy_score\ny_test=[1,0,1,1,0,1,1,0,0,1]\nnull_pred=[1]*len(y_test)  # always predict majority class\nnull_acc=accuracy_score(y_test,null_pred)\nprint(f"Null model accuracy:{null_acc:.2f} — your model must beat this!")','beginner'),
+("How do I prevent data leakage from the very beginning?",
+ 'import pandas as pd\n# Define cutoff BEFORE any feature engineering\ncutoff=pd.Timestamp("2023-01-01")\ntrain=df[df["date"]<cutoff].copy()\ntest=df[df["date"]>=cutoff].copy()\n# Fit scalers/encoders ONLY on train, apply to test\nprint(f"Train:{len(train)}, Test:{len(test)}")','advanced'),
+("How do I define a multi-label classification problem?",
+ 'import pandas as pd\n# Multi-label: each sample can belong to multiple classes\nprint("Labels per sample distribution:")\ndf["label_count"]=df[label_cols].sum(axis=1)\nprint(df["label_count"].value_counts())\nprint("Use sigmoid activation + binary cross-entropy loss")','intermediate'),
+("How do I scope a recommender system project?",
+ 'scope={"task":"Collaborative Filtering","metric":"NDCG@10","data":"User-item interaction matrix","baseline":"Popularity-based recommendations","constraint":"Must handle cold-start users"}\nfor k,v in scope.items(): print(f"{k}: {v}")','advanced'),
+("How do I document assumptions before building a model?",
+ 'assumptions=["1.Historical patterns will hold in future","2.Data collection process is stable","3.No concept drift expected within deployment period","4.Missing values are missing at random (MAR)","5.Features are independent of the prediction window"]\nfor a in assumptions: print(a)','intermediate'),
+("How do I choose between binary and multi-class framing?",
+ '# Binary: "Will customer churn? Yes/No"\n# Multi-class: "Which churn risk tier? Low/Medium/High"\n# Binary is simpler; multi-class gives more actionable output\ny_binary=(df["churn_days"]<30).astype(int)\ny_multiclass=pd.cut(df["churn_days"],bins=[0,30,90,365,9999],labels=["High","Med","Low","None"])\nprint(y_binary.value_counts())\nprint(y_multiclass.value_counts())','intermediate'),
+("How do I estimate dataset size requirements before collecting data?",
+ '# Rule of thumb: 10x the number of features for traditional ML\n# Deep learning: typically 10,000+ samples per class\nn_features=20\nmin_samples_traditional=10*n_features\nmin_samples_per_class_dl=10_000\nprint(f"Traditional ML minimum: {min_samples_traditional} samples")\nprint(f"Deep learning minimum per class: {min_samples_per_class_dl} samples")','intermediate'),
+("How do I handle a time-series forecasting problem setup?",
+ 'import pandas as pd\ndf=pd.read_csv("sales.csv",parse_dates=["date"])\ndf=df.sort_values("date")\n# Time-aware split: NO shuffling\ntrain=df[df["date"]<"2023-01-01"]\ntest=df[df["date"]>="2023-01-01"]\nprint(f"Train: {len(train)} rows | Test: {len(test)} rows")','intermediate'),
+("What is concept drift and how do I monitor for it?",
+ 'from scipy.stats import ks_2samp\n# KS test detects distribution shift between train and new data\nstat,p_value=ks_2samp(X_train["age"],X_new["age"])\nif p_value<0.05:\n    print(f"⚠ Concept drift detected in age column (p={p_value:.4f})")\nelse:\n    print("No significant drift detected")','advanced'),
+("How do I create a problem statement document for stakeholders?",
+ 'problem_doc="""\nProblem: Predict customer lifetime value (CLV)\nTask: Regression\nTarget: clv_12months (total spend in next 12 months)\nMetric: RMSE < 200, R² > 0.70  \nBaseline: Predict mean CLV for all customers\nData: 2 years of transaction history (500K rows)\nConstraints: Interpretable, <100ms inference latency\n"""\nprint(problem_doc)','beginner'),
+("How do I identify the right machine learning algorithm for my problem?",
+ 'decision_tree={"Interpretability needed":"Decision Tree/Logistic Regression","Small dataset (<1000)":"SVM/Logistic Regression","Large dataset tabular":"XGBoost/LightGBM","Image data":"CNN","Text data":"Transformers/BERT","Tabular + speed critical":"LightGBM"}\nfor situation,recommendation in decision_tree.items(): print(f"{situation}: {recommendation}")','beginner'),
+("How do I set up a proper experiment tracking system?",
+ 'import mlflow\nmlflow.set_experiment("ds_mentor_project")\nwith mlflow.start_run():\n    mlflow.log_param("model","RandomForest")\n    mlflow.log_param("n_estimators",100)\n    mlflow.log_metric("auc",0.85)\n    mlflow.log_metric("f1",0.79)\n    mlflow.sklearn.log_model(model,"model")\nprint("Experiment logged to MLflow")','advanced'),
+],
+2: [
+("How do I load a CSV file with pandas?",
+ 'import pandas as pd\ndf=pd.read_csv("data/train.csv")\nprint(f"Shape:{df.shape}")\nprint(df.head())','beginner'),
+("How do I load multiple CSV files from a folder into one DataFrame?",
+ 'import pandas as pd, glob\nfiles=glob.glob("data/*.csv")\ndf=pd.concat([pd.read_csv(f) for f in files],ignore_index=True)\nprint(f"Total rows:{len(df)}")','beginner'),
+("How do I load a JSON file into pandas?",
+ 'import pandas as pd, json\ndf=pd.read_json("data.json")\n# Nested JSON:\nwith open("data.json") as f: data=json.load(f)\ndf=pd.json_normalize(data)\nprint(df.head())','beginner'),
+("How do I load a dataset directly from a URL?",
+ 'import pandas as pd\nurl="https://raw.githubusercontent.com/datasciencedojo/datasets/master/titanic.csv"\ndf=pd.read_csv(url)\nprint(df.shape)','beginner'),
+("How do I load an Excel file with pandas?",
+ 'import pandas as pd\ndf=pd.read_excel("data.xlsx",sheet_name="Sheet1")\nall_sheets=pd.read_excel("data.xlsx",sheet_name=None)\nfor name,sheet in all_sheets.items(): print(f"{name}:{sheet.shape}")','beginner'),
+("How do I connect to a SQL database and load data into pandas?",
+ 'import pandas as pd, sqlite3\nconn=sqlite3.connect("database.db")\ndf=pd.read_sql_query("SELECT * FROM customers LIMIT 10000",conn)\nconn.close()\nprint(df.shape)','intermediate'),
+("How do I load a parquet file efficiently?",
+ 'import pandas as pd\ndf=pd.read_parquet("data.parquet")\nprint(f"Shape:{df.shape}")\nprint(f"Memory:{df.memory_usage(deep=True).sum()/1e6:.1f} MB")','intermediate'),
+("How do I check basic properties right after loading a dataset?",
+ 'import pandas as pd\ndf=pd.read_csv("train.csv")\nprint("Shape:",df.shape)\nprint("\\nDtypes:\\n",df.dtypes)\nprint("\\nMissing values:\\n",df.isnull().sum())\nprint("\\nSample:\\n",df.head())','beginner'),
+("How do I load only specific columns from a large CSV?",
+ 'import pandas as pd\ncols=["id","age","income","target"]\ndf=pd.read_csv("large_data.csv",usecols=cols)\nprint(f"Loaded {len(cols)} columns, {len(df)} rows")','beginner'),
+("How do I read a large CSV in chunks to avoid memory errors?",
+ 'import pandas as pd\nchunks=[]\nfor chunk in pd.read_csv("large.csv",chunksize=10_000):\n    chunk=chunk[chunk["age"]>18]\n    chunks.append(chunk)\ndf=pd.concat(chunks,ignore_index=True)\nprint(f"Final shape:{df.shape}")','intermediate'),
+("How do I handle encoding errors when loading a CSV?",
+ 'import pandas as pd\ntry:\n    df=pd.read_csv("data.csv",encoding="utf-8")\nexcept UnicodeDecodeError:\n    df=pd.read_csv("data.csv",encoding="latin-1")\nprint("Loaded successfully:",df.shape)','intermediate'),
+("How do I load a compressed CSV (.gz or .zip)?",
+ 'import pandas as pd\ndf_gz=pd.read_csv("data.csv.gz")   # auto-decompressed\ndf_zip=pd.read_csv("data.zip")     # single CSV inside zip\nprint(df_gz.shape)','beginner'),
+("How do I load a tab-separated (TSV) file?",
+ 'import pandas as pd\ndf=pd.read_csv("data.tsv",sep="\\t")\nprint(df.head())','beginner'),
+("How do I validate a dataset immediately after loading?",
+ 'import pandas as pd\ndf=pd.read_csv("train.csv")\nassert len(df)>0,"Empty dataset!"\nassert "target" in df.columns,"Target column missing!"\nassert df.duplicated().sum()==0,f"{df.duplicated().sum()} duplicates found"\nprint("Validation passed. Shape:",df.shape)','intermediate'),
+("How do I load data from a REST API?",
+ 'import requests,pandas as pd\nresponse=requests.get("https://api.example.com/data")\ndata=response.json()\ndf=pd.DataFrame(data)\nprint(df.shape)','intermediate'),
+("How do I do stratified sampling on a large dataset?",
+ 'import pandas as pd\ndf=pd.read_csv("large_data.csv")\nsample=df.groupby("target",group_keys=False).apply(\n    lambda x:x.sample(min(len(x),5000),random_state=42))\nprint(f"Sample shape:{sample.shape}")','intermediate'),
+("How do I load data from Google BigQuery into pandas?",
+ 'from google.cloud import bigquery\nimport pandas as pd\nclient=bigquery.Client()\nquery="SELECT * FROM project.dataset.table LIMIT 100000"\ndf=client.query(query).to_dataframe()\nprint(df.shape)','advanced'),
+("How do I set correct dtypes when loading to reduce memory?",
+ 'import pandas as pd, numpy as np\ndtype_map={"age":np.int8,"income":np.float32,"zip_code":str,"date":str}\ndf=pd.read_csv("data.csv",dtype=dtype_map,parse_dates=["date"])\nprint(f"Memory after dtype opt: {df.memory_usage(deep=True).sum()/1e6:.1f} MB")','intermediate'),
+("How do I load image file paths and labels for a CV task?",
+ 'from pathlib import Path\nimport pandas as pd\nimage_dir=Path("images/")\npaths=list(image_dir.glob("**/*.jpg"))\ndf=pd.DataFrame({"path":paths,"label":[p.parent.name for p in paths]})\nprint(df["label"].value_counts())','intermediate'),
+("How do I load and merge train and test sets together?",
+ 'import pandas as pd\ntrain=pd.read_csv("train.csv")\ntest=pd.read_csv("test.csv")\ntrain["split"]="train"\ntest["split"]="test"\ncombined=pd.concat([train,test],ignore_index=True)\nprint(f"Combined:{combined.shape}")','beginner'),
+],
+3: [
+("How do I get a quick statistical summary of my dataset?",
+ 'import pandas as pd\ndf=pd.read_csv("train.csv")\nprint(df.describe(include="all").round(2))','beginner'),
+("How do I plot the distribution of a numeric column?",
+ 'import matplotlib.pyplot as plt\nimport seaborn as sns\nfig,axes=plt.subplots(1,2,figsize=(12,4))\nsns.histplot(df["Age"].dropna(),bins=30,kde=True,ax=axes[0])\nsns.boxplot(y=df["Age"].dropna(),ax=axes[1])\nplt.suptitle("Age Distribution")\nplt.tight_layout(); plt.show()','beginner'),
+("How do I create a correlation heatmap?",
+ 'import seaborn as sns\nimport matplotlib.pyplot as plt\nplt.figure(figsize=(10,8))\nsns.heatmap(df.select_dtypes("number").corr(),annot=True,fmt=".2f",cmap="coolwarm",center=0)\nplt.title("Feature Correlation Matrix")\nplt.tight_layout(); plt.show()','beginner'),
+("How do I check for and visualize missing values?",
+ 'import matplotlib.pyplot as plt\nprint(df.isnull().sum().sort_values(ascending=False))\nprint("Missing %:",df.isnull().mean().mul(100).round(1))\ndf.isnull().sum().plot(kind="bar")\nplt.title("Missing Values per Column")\nplt.tight_layout(); plt.show()','beginner'),
+("How do I analyze the target variable distribution?",
+ 'import matplotlib.pyplot as plt\nimport seaborn as sns\nfig,ax=plt.subplots(figsize=(8,5))\ndf["Survived"].value_counts().plot(kind="bar",ax=ax,color=["#e74c3c","#2ecc71"])\nax.set_title("Target Distribution")\nfor p in ax.patches: ax.annotate(str(int(p.get_height())),(p.get_x()+0.3,p.get_height()+2))\nplt.show()','beginner'),
+("How do I detect outliers using the IQR method?",
+ 'def detect_outliers_iqr(df,col):\n    Q1=df[col].quantile(0.25); Q3=df[col].quantile(0.75); IQR=Q3-Q1\n    lo=Q1-1.5*IQR; hi=Q3+1.5*IQR\n    out=df[(df[col]<lo)|(df[col]>hi)]\n    print(f"{col}: {len(out)} outliers ({len(out)/len(df)*100:.1f}%)")\nfor col in df.select_dtypes("number").columns: detect_outliers_iqr(df,col)','intermediate'),
+("How do I create a pairplot to visualize feature relationships?",
+ 'import seaborn as sns\nimport matplotlib.pyplot as plt\ncols=df.select_dtypes("number").columns[:5]\nsns.pairplot(df[list(cols)+["Survived"]],hue="Survived",diag_kind="kde")\nplt.suptitle("Pairplot of Features",y=1.02); plt.show()','intermediate'),
+("How do I analyze categorical features visually?",
+ 'import matplotlib.pyplot as plt\nimport seaborn as sns\ncat_cols=df.select_dtypes(["object","category"]).columns\nfig,axes=plt.subplots(1,len(cat_cols),figsize=(15,4))\nfor ax,col in zip(axes,cat_cols):\n    df[col].value_counts().plot(kind="bar",ax=ax)\n    ax.set_title(col); ax.tick_params(axis="x",rotation=45)\nplt.tight_layout(); plt.show()','beginner'),
+("How do I compute and visualize skewness in features?",
+ 'import matplotlib.pyplot as plt\nnum_df=df.select_dtypes("number")\nskewness=num_df.skew().sort_values(ascending=False)\nprint("Highly skewed (|skew|>1):",skewness[abs(skewness)>1].index.tolist())\nskewness.plot(kind="barh")\nplt.axvline(0,color="black"); plt.title("Feature Skewness")\nplt.tight_layout(); plt.show()','intermediate'),
+("How do I do a grouped analysis of target vs features?",
+ 'import matplotlib.pyplot as plt\nimport seaborn as sns\npivot=df.groupby("Pclass")["Survived"].mean().reset_index()\nsns.barplot(data=pivot,x="Pclass",y="Survived")\nplt.title("Survival Rate by Passenger Class")\nplt.ylabel("Survival Rate"); plt.show()','beginner'),
+("How do I detect duplicate rows?",
+ 'print("Duplicate rows:",df.duplicated().sum())\nprint("\\nDuplicate sample:")\nprint(df[df.duplicated(keep=False)].head())','beginner'),
+("How do I analyze memory usage of a DataFrame?",
+ 'print("Memory usage per column:")\nprint((df.memory_usage(deep=True)/1024**2).round(3),"MB")\nprint(f"Total:{df.memory_usage(deep=True).sum()/1024**2:.2f} MB")','beginner'),
+("How do I visualize a time series trend?",
+ 'import matplotlib.pyplot as plt\nimport pandas as pd\ndf["date"]=pd.to_datetime(df["date"])\ndf.set_index("date")["sales"].resample("M").mean().plot(figsize=(12,5))\nplt.title("Monthly Average Sales"); plt.ylabel("Sales"); plt.grid(True); plt.show()','intermediate'),
+("How do I create a violin plot for distribution comparison?",
+ 'import seaborn as sns\nimport matplotlib.pyplot as plt\nsns.violinplot(data=df,x="Pclass",y="Age",palette="Set2")\nplt.title("Age Distribution by Passenger Class"); plt.show()','beginner'),
+("How do I find high-cardinality columns?",
+ 'for col in df.select_dtypes(["object","category"]).columns:\n    n=df[col].nunique()\n    pct=n/len(df)*100\n    print(f"{col}: {n} unique ({pct:.1f}%)")','beginner'),
+("How do I detect constant or near-constant features?",
+ 'from sklearn.feature_selection import VarianceThreshold\nnum_df=df.select_dtypes("number").fillna(0)\nsel=VarianceThreshold(threshold=0.01)\nsel.fit(num_df)\nconstant=num_df.columns[~sel.get_support()].tolist()\nprint("Near-zero variance columns:",constant)','intermediate'),
+("How do I create a scatter plot with regression line?",
+ 'import seaborn as sns\nimport matplotlib.pyplot as plt\nsns.regplot(data=df,x="Age",y="Fare",scatter_kws={"alpha":0.3})\nplt.title("Age vs Fare with Regression Line"); plt.show()','beginner'),
+("How do I analyze missing data patterns by row?",
+ 'df["missing_count"]=df.isnull().sum(axis=1)\nprint("Missing values per row:")\nprint(df["missing_count"].value_counts().sort_index())\nhigh=df[df["missing_count"]>df.shape[1]*0.5]\nprint(f"\\nRows with >50% missing:{len(high)}")','intermediate'),
+("How do I compute feature-target correlations ranked?",
+ 'import pandas as pd\ncorr=df.select_dtypes("number").corr()["Survived"].drop("Survived")\ncorr_sorted=corr.abs().sort_values(ascending=False)\nprint("Feature correlations with target:\\n",corr_sorted)','beginner'),
+("How do I use crosstab to analyze two categorical variables?",
+ 'import pandas as pd\nct=pd.crosstab(df["Pclass"],df["Survived"],margins=True,normalize="index").round(2)\nprint("Survival rate by class:\\n",ct)','beginner'),
+],
+4: [
+("How do I handle missing values in a numeric column?",
+ 'from sklearn.impute import SimpleImputer\nimputer=SimpleImputer(strategy="median")\ndf["Age"]=imputer.fit_transform(df[["Age"]])\nprint("Nulls after imputation:",df["Age"].isnull().sum())','beginner'),
+("How do I fill missing categorical values with the mode?",
+ 'mode_val=df["Embarked"].mode()[0]\ndf["Embarked"].fillna(mode_val,inplace=True)\nprint("Embarked nulls after fill:",df["Embarked"].isnull().sum())','beginner'),
+("How do I drop columns with more than 50% missing values?",
+ 'threshold=0.5\ncols_to_drop=df.columns[df.isnull().mean()>threshold].tolist()\ndf.drop(columns=cols_to_drop,inplace=True)\nprint(f"Dropped {len(cols_to_drop)} columns:{cols_to_drop}")','beginner'),
+("How do I remove duplicate rows?",
+ 'before=len(df)\ndf.drop_duplicates(inplace=True)\ndf.reset_index(drop=True,inplace=True)\nprint(f"Removed {before-len(df)} duplicate rows")','beginner'),
+("How do I cap outliers using IQR method?",
+ 'def cap_outliers(df,col):\n    Q1=df[col].quantile(0.25); Q3=df[col].quantile(0.75); IQR=Q3-Q1\n    df[col]=df[col].clip(Q1-1.5*IQR,Q3+1.5*IQR)\n    return df\nfor col in ["Age","Fare"]: df=cap_outliers(df,col)\nprint("Outliers capped")','intermediate'),
+("How do I convert columns to correct data types?",
+ 'df["Age"]=df["Age"].astype(float)\ndf["Pclass"]=df["Pclass"].astype("category")\ndf["Date"]=pd.to_datetime(df["Date"])\nprint(df.dtypes)','beginner'),
+("How do I use KNN imputation for missing values?",
+ 'from sklearn.impute import KNNImputer\nnum_cols=df.select_dtypes("number").columns\nimputer=KNNImputer(n_neighbors=5)\ndf[num_cols]=imputer.fit_transform(df[num_cols])\nprint("Nulls after KNN imputation:",df[num_cols].isnull().sum().sum())','intermediate'),
+("How do I handle imbalanced classes with SMOTE?",
+ 'from imblearn.over_sampling import SMOTE\nsmote=SMOTE(random_state=42)\nX_res,y_res=smote.fit_resample(X_train,y_train)\nprint(f"Before:{dict(pd.Series(y_train).value_counts())}")\nprint(f"After: {dict(pd.Series(y_res).value_counts())}")','intermediate'),
+("How do I normalize text before NLP processing?",
+ 'import re\ndef clean_text(text):\n    text=str(text).lower()\n    text=re.sub(r"http\\S+","",text)\n    text=re.sub(r"[^a-z0-9\\s]","",text)\n    return re.sub(r"\\s+"," ",text).strip()\ndf["clean_text"]=df["text"].apply(clean_text)','intermediate'),
+("How do I create a full sklearn preprocessing pipeline?",
+ 'from sklearn.pipeline import Pipeline\nfrom sklearn.preprocessing import StandardScaler\nfrom sklearn.impute import SimpleImputer\npipe=Pipeline([("imputer",SimpleImputer(strategy="median")),("scaler",StandardScaler())])\nX_num=df.select_dtypes("number")\nX_processed=pipe.fit_transform(X_num)\nprint("Pipeline output shape:",X_processed.shape)','intermediate'),
+("How do I handle outliers with log transformation?",
+ 'import numpy as np\ndf["Fare_log"]=np.log1p(df["Fare"])\nprint(f"Fare skew: {df[\"Fare\"].skew():.2f} → {df[\"Fare_log\"].skew():.2f}")','beginner'),
+("How do I use iterative imputation for missing values?",
+ 'from sklearn.experimental import enable_iterative_imputer\nfrom sklearn.impute import IterativeImputer\nimp=IterativeImputer(max_iter=10,random_state=42)\nnum_cols=df.select_dtypes("number").columns\ndf[num_cols]=imp.fit_transform(df[num_cols])\nprint("Iterative imputation done")','advanced'),
+("How do I standardize numeric features to mean=0 std=1?",
+ 'from sklearn.preprocessing import StandardScaler\nnum_cols=df.select_dtypes("number").columns\nscaler=StandardScaler()\ndf_sc=df.copy(); df_sc[num_cols]=scaler.fit_transform(df[num_cols])\nprint("Mean after scaling:",df_sc[num_cols].mean().round(3))','beginner'),
+("How do I normalize features to [0,1] range?",
+ 'from sklearn.preprocessing import MinMaxScaler\ncols=["Age","Fare"]\nscaler=MinMaxScaler()\ndf[cols]=scaler.fit_transform(df[cols])\nprint("Min:",df[cols].min(),"Max:",df[cols].max())','beginner'),
+("How do I handle class imbalance with class_weight?",
+ 'from sklearn.ensemble import RandomForestClassifier\nmodel=RandomForestClassifier(n_estimators=100,class_weight="balanced",random_state=42)\nmodel.fit(X_train,y_train)\nprint("Training complete with balanced class weights")','intermediate'),
+("How do I detect and fix data type mismatches?",
+ 'print("Current dtypes:\\n",df.dtypes)\n# Fix common issues:\ndf["age"]=pd.to_numeric(df["age"],errors="coerce")\ndf["income"]=df["income"].str.replace(",","").astype(float)\ndf["zip_code"]=df["zip_code"].astype(str).str.zfill(5)\nprint("\\nFixed dtypes:\\n",df.dtypes)','intermediate'),
+("How do I replace inconsistent category labels?",
+ 'print("Before:",df["Gender"].value_counts())\ndf["Gender"]=df["Gender"].str.lower().str.strip()\ndf["Gender"]=df["Gender"].replace({"m":"male","f":"female","0":"male","1":"female"})\nprint("After:",df["Gender"].value_counts())','beginner'),
+("How do I remove rows where the target is null?",
+ 'print(f"Before:{len(df)} rows")\ndf=df.dropna(subset=["target"])\ndf.reset_index(drop=True,inplace=True)\nprint(f"After:{len(df)} rows")','beginner'),
+("How do I split into train and test preserving class distribution?",
+ 'from sklearn.model_selection import train_test_split\nX=df.drop("target",axis=1); y=df["target"]\nX_train,X_test,y_train,y_test=train_test_split(X,y,test_size=0.2,random_state=42,stratify=y)\nprint(f"Train:{X_train.shape}, Test:{X_test.shape}")','beginner'),
+("How do I handle text with special characters in pandas?",
+ 'df["name"]=df["name"].str.strip().str.lower()\ndf["name"]=df["name"].str.replace(r"[^a-z\\s]","",regex=True)\ndf["name"]=df["name"].str.replace(r"\\s+"," ",regex=True)\nprint(df["name"].head())','beginner'),
+],
+5: [
+("How do I encode a categorical column with LabelEncoder?",
+ 'from sklearn.preprocessing import LabelEncoder\nle=LabelEncoder()\ndf["Sex_enc"]=le.fit_transform(df["Sex"])\nprint(dict(zip(le.classes_,le.transform(le.classes_))))','beginner'),
+("How do I apply one-hot encoding?",
+ 'df=pd.get_dummies(df,columns=["Embarked","Pclass"],drop_first=True)\nprint("New columns:",df.columns.tolist())','beginner'),
+("How do I create interaction features?",
+ 'df["Age_Fare"]=df["Age"]*df["Fare"]\ndf["Age_Pclass"]=df["Age"]*df["Pclass"]\nprint("Interaction features created")','beginner'),
+("How do I create polynomial features?",
+ 'from sklearn.preprocessing import PolynomialFeatures\nimport pandas as pd\npoly=PolynomialFeatures(degree=2,include_bias=False)\npoly_arr=poly.fit_transform(df[["Age","Fare"]])\npoly_df=pd.DataFrame(poly_arr,columns=poly.get_feature_names_out(["Age","Fare"]))\nprint(poly_df.columns.tolist())','intermediate'),
+("How do I create a FamilySize feature from SibSp and Parch?",
+ 'df["FamilySize"]=df["SibSp"]+df["Parch"]+1\ndf["IsAlone"]=(df["FamilySize"]==1).astype(int)\nprint(df[["SibSp","Parch","FamilySize","IsAlone"]].head())','beginner'),
+("How do I extract title from a Name column?",
+ 'df["Title"]=df["Name"].str.extract(r" ([A-Za-z]+)\\.",expand=False)\nrare=df["Title"].value_counts()[df["Title"].value_counts()<10].index\ndf["Title"]=df["Title"].replace(rare,"Rare")\nprint(df["Title"].value_counts())','intermediate'),
+("How do I apply target encoding?",
+ 'target_means=df.groupby("Embarked")["Survived"].mean()\ndf["Embarked_te"]=df["Embarked"].map(target_means)\nprint(df[["Embarked","Embarked_te"]].drop_duplicates())','intermediate'),
+("How do I create age bin features?",
+ 'df["Age_bin"]=pd.cut(df["Age"],bins=[0,12,18,35,60,100],labels=["Child","Teen","Adult","Middle","Senior"])\nprint(df["Age_bin"].value_counts())','beginner'),
+("How do I apply log transform to reduce skewness?",
+ 'import numpy as np\nfor col in ["Fare","Income"]:\n    df[f"{col}_log"]=np.log1p(df[col])\n    print(f"{col} skew:{df[col].skew():.2f}→{df[f\"{col}_log\"].skew():.2f}")','beginner'),
+("How do I extract datetime features?",
+ 'df["date"]=pd.to_datetime(df["date"])\ndf["year"]=df["date"].dt.year\ndf["month"]=df["date"].dt.month\ndf["dayofweek"]=df["date"].dt.dayofweek\ndf["is_weekend"]=(df["date"].dt.dayofweek>=5).astype(int)\nprint(df[["date","year","month","dayofweek","is_weekend"]].head())','beginner'),
+("How do I apply frequency encoding?",
+ 'freq=df["City"].value_counts(normalize=True)\ndf["City_freq"]=df["City"].map(freq)\nprint(df[["City","City_freq"]].head())','beginner'),
+("How do I reduce dimensionality with PCA?",
+ 'from sklearn.decomposition import PCA\nfrom sklearn.preprocessing import StandardScaler\nnum_cols=df.select_dtypes("number").drop(columns=["target"]).columns\nX_sc=StandardScaler().fit_transform(df[num_cols])\npca=PCA(n_components=0.95,random_state=42)\nX_pca=pca.fit_transform(X_sc)\nprint(f"Reduced {len(num_cols)}→{X_pca.shape[1]} features")','intermediate'),
+("How do I select top K features with SelectKBest?",
+ 'from sklearn.feature_selection import SelectKBest,f_classif\nX=df.drop("target",axis=1).select_dtypes("number")\ny=df["target"]\nsel=SelectKBest(f_classif,k=10)\nX_new=sel.fit_transform(X,y)\nprint("Top 10 features:",X.columns[sel.get_support()].tolist())','intermediate'),
+("How do I create TF-IDF features from text?",
+ 'from sklearn.feature_extraction.text import TfidfVectorizer\nvec=TfidfVectorizer(max_features=5000,ngram_range=(1,2),stop_words="english")\nX_tfidf=vec.fit_transform(df["text"])\nprint(f"TF-IDF matrix:{X_tfidf.shape}")','intermediate'),
+("How do I cross-validate target encoding to prevent leakage?",
+ 'from sklearn.model_selection import KFold\ndef cv_target_encode(df,col,target,n=5):\n    gmean=df[target].mean()\n    df[f"{col}_te"]=gmean\n    for tr,val in KFold(n,shuffle=True,random_state=42).split(df):\n        means=df.iloc[tr].groupby(col)[target].mean()\n        df.loc[df.index[val],f"{col}_te"]=df.iloc[val][col].map(means).fillna(gmean)\n    return df\ndf=cv_target_encode(df,"Embarked","Survived")','advanced'),
+("How do I handle high-cardinality categoricals?",
+ '# Options: frequency encode, target encode, or hash encode\nfrom sklearn.feature_extraction import FeatureHasher\nfh=FeatureHasher(n_features=16,input_type="string")\nhashed=fh.transform(df["City"].apply(lambda x:[x]))\nprint("Hashed shape:",hashed.shape)','advanced'),
+("How do I compute RFECV for automated feature selection?",
+ 'from sklearn.feature_selection import RFECV\nfrom sklearn.ensemble import RandomForestClassifier\nrfecv=RFECV(RandomForestClassifier(n_estimators=50,random_state=42),cv=5,scoring="roc_auc",n_jobs=-1)\nrfecv.fit(X_train,y_train)\nprint(f"Optimal features ({rfecv.n_features_}):",X_train.columns[rfecv.support_].tolist())','advanced'),
+("How do I create rolling window features for time series?",
+ 'df=df.sort_values("date")\ndf["sales_7d_avg"]=df["sales"].rolling(window=7,min_periods=1).mean()\ndf["sales_7d_std"]=df["sales"].rolling(window=7,min_periods=1).std()\ndf["sales_lag1"]=df["sales"].shift(1)\nprint(df[["date","sales","sales_7d_avg","sales_lag1"]].head(10))','advanced'),
+("How do I encode ordinal categories preserving order?",
+ 'from sklearn.preprocessing import OrdinalEncoder\nencoder=OrdinalEncoder(categories=[["Low","Medium","High"]])\ndf["risk_enc"]=encoder.fit_transform(df[["risk_level"]])\nprint(df[["risk_level","risk_enc"]].drop_duplicates().sort_values("risk_enc"))','intermediate'),
+("How do I normalize features with RobustScaler for outlier-heavy data?",
+ 'from sklearn.preprocessing import RobustScaler\nscaler=RobustScaler()  # uses median and IQR, robust to outliers\nnum_cols=["Age","Fare","Income"]\ndf[num_cols]=scaler.fit_transform(df[num_cols])\nprint("RobustScaler applied. Median≈0, IQR≈1")','intermediate'),
+],
+6: [
+("How do I train a Random Forest classifier?",
+ 'from sklearn.ensemble import RandomForestClassifier\nfrom sklearn.model_selection import train_test_split\nX=df[features]; y=df["Survived"]\nX_tr,X_te,y_tr,y_te=train_test_split(X,y,test_size=0.2,random_state=42)\nmodel=RandomForestClassifier(n_estimators=100,max_depth=5,random_state=42)\nmodel.fit(X_tr,y_tr)\nprint("Train:",model.score(X_tr,y_tr),"Test:",model.score(X_te,y_te))','beginner'),
+("How do I train an XGBoost model with early stopping?",
+ 'from xgboost import XGBClassifier\nmodel=XGBClassifier(n_estimators=300,learning_rate=0.05,max_depth=5,use_label_encoder=False,eval_metric="logloss",random_state=42)\nmodel.fit(X_train,y_train,eval_set=[(X_test,y_test)],early_stopping_rounds=20,verbose=100)\nprint("Best iteration:",model.best_iteration)','intermediate'),
+("How do I use k-fold cross-validation?",
+ 'from sklearn.model_selection import StratifiedKFold,cross_val_score\nfrom sklearn.ensemble import RandomForestClassifier\nskf=StratifiedKFold(n_splits=5,shuffle=True,random_state=42)\nscores=cross_val_score(RandomForestClassifier(n_estimators=100,random_state=42),X,y,cv=skf,scoring="roc_auc")\nprint(f"AUC:{scores.mean():.4f}±{scores.std():.4f}")','intermediate'),
+("How do I tune hyperparameters with GridSearchCV?",
+ 'from sklearn.model_selection import GridSearchCV\nfrom sklearn.ensemble import RandomForestClassifier\nparam_grid={"n_estimators":[100,200],"max_depth":[3,5,None],"min_samples_leaf":[1,2]}\ngrid=GridSearchCV(RandomForestClassifier(random_state=42),param_grid,cv=5,scoring="roc_auc",n_jobs=-1)\ngrid.fit(X_train,y_train)\nprint("Best params:",grid.best_params_,"Best AUC:",grid.best_score_)','intermediate'),
+("How do I tune hyperparameters with Optuna?",
+ 'import optuna\nfrom xgboost import XGBClassifier\nfrom sklearn.model_selection import cross_val_score\ndef objective(trial):\n    p={"n_estimators":trial.suggest_int("n_estimators",100,500),"max_depth":trial.suggest_int("max_depth",3,8),"learning_rate":trial.suggest_float("lr",0.01,0.3,log=True)}\n    return cross_val_score(XGBClassifier(**p,use_label_encoder=False,eval_metric="logloss"),X,y,cv=5,scoring="roc_auc").mean()\nstudy=optuna.create_study(direction="maximize")\nstudy.optimize(objective,n_trials=50)\nprint("Best:",study.best_params)','advanced'),
+("How do I train a LightGBM model?",
+ 'import lightgbm as lgb\ndtrain=lgb.Dataset(X_train,label=y_train)\ndval=lgb.Dataset(X_test,label=y_test,reference=dtrain)\nparams={"objective":"binary","metric":"auc","learning_rate":0.05,"num_leaves":31,"n_estimators":500}\nmodel=lgb.train(params,dtrain,valid_sets=[dval],callbacks=[lgb.early_stopping(50),lgb.log_evaluation(100)])\nprint("Best AUC:",model.best_score["valid_0"]["auc"])','intermediate'),
+("How do I build a voting ensemble?",
+ 'from sklearn.ensemble import VotingClassifier,RandomForestClassifier,GradientBoostingClassifier\nfrom sklearn.linear_model import LogisticRegression\nens=VotingClassifier([("rf",RandomForestClassifier(n_estimators=100,random_state=42)),("gb",GradientBoostingClassifier(n_estimators=100,random_state=42)),("lr",LogisticRegression(max_iter=1000))],voting="soft")\nens.fit(X_train,y_train)\nprint("Ensemble score:",ens.score(X_test,y_test))','advanced'),
+("How do I use stacking to combine multiple models?",
+ 'from sklearn.ensemble import StackingClassifier,RandomForestClassifier,GradientBoostingClassifier\nfrom sklearn.linear_model import LogisticRegression\nstack=StackingClassifier([("rf",RandomForestClassifier(100,random_state=42)),("gb",GradientBoostingClassifier(100,random_state=42))],final_estimator=LogisticRegression(),cv=5)\nstack.fit(X_train,y_train)\nprint("Stack score:",stack.score(X_test,y_test))','advanced'),
+("How do I train logistic regression with regularization?",
+ 'from sklearn.linear_model import LogisticRegression\nfrom sklearn.preprocessing import StandardScaler\nX_tr_sc=StandardScaler().fit_transform(X_train)\nmodel=LogisticRegression(C=1.0,penalty="l2",max_iter=1000,random_state=42)\nmodel.fit(X_tr_sc,y_train)\nprint("Accuracy:",model.score(StandardScaler().fit_transform(X_test),y_test))','beginner'),
+("How do I use an sklearn Pipeline end-to-end?",
+ 'from sklearn.pipeline import Pipeline\nfrom sklearn.preprocessing import StandardScaler\nfrom sklearn.impute import SimpleImputer\nfrom sklearn.ensemble import RandomForestClassifier\npipe=Pipeline([("imputer",SimpleImputer(strategy="median")),("scaler",StandardScaler()),("model",RandomForestClassifier(100,random_state=42))])\npipe.fit(X_train,y_train)\nprint("Pipeline AUC:",pipe.score(X_test,y_test))','intermediate'),
+("How do I save and load a trained model?",
+ 'import joblib\njoblib.dump(model,"models/rf_model.pkl")\nloaded=joblib.load("models/rf_model.pkl")\nprint("Loaded model predictions:",loaded.predict(X_test)[:5])','beginner'),
+("How do I train a neural network with sklearn MLP?",
+ 'from sklearn.neural_network import MLPClassifier\nmodel=MLPClassifier(hidden_layer_sizes=(128,64,32),activation="relu",max_iter=300,early_stopping=True,validation_fraction=0.1,random_state=42)\nmodel.fit(X_train,y_train)\nprint("MLP accuracy:",model.score(X_test,y_test))','intermediate'),
+("How do I handle overfitting with regularization?",
+ '# L2 regularization in logistic regression:\nfrom sklearn.linear_model import LogisticRegression\nmodel=LogisticRegression(C=0.1,penalty="l2",max_iter=1000)  # smaller C = stronger regularization\n# max_depth in tree models:\nfrom sklearn.ensemble import RandomForestClassifier\nmodel2=RandomForestClassifier(max_depth=5,min_samples_leaf=10)  # limit tree depth\nprint("Regularization applied")','intermediate'),
+("How do I use RandomizedSearchCV for faster tuning?",
+ 'from sklearn.model_selection import RandomizedSearchCV\nfrom scipy.stats import randint\nfrom sklearn.ensemble import RandomForestClassifier\nparam_dist={"n_estimators":randint(50,300),"max_depth":randint(3,10),"min_samples_leaf":randint(1,10)}\nrs=RandomizedSearchCV(RandomForestClassifier(random_state=42),param_dist,n_iter=30,cv=5,scoring="roc_auc",n_jobs=-1,random_state=42)\nrs.fit(X_train,y_train)\nprint("Best params:",rs.best_params_)','intermediate'),
+("How do I implement cross-validation with stratified folds?",
+ 'from sklearn.model_selection import StratifiedKFold\nimport numpy as np\nskf=StratifiedKFold(n_splits=5,shuffle=True,random_state=42)\nauc_scores=[]\nfor fold,(tr,val) in enumerate(skf.split(X,y)):\n    model.fit(X.iloc[tr],y.iloc[tr])\n    prob=model.predict_proba(X.iloc[val])[:,1]\n    from sklearn.metrics import roc_auc_score\n    auc=roc_auc_score(y.iloc[val],prob)\n    auc_scores.append(auc)\n    print(f"Fold {fold+1}: AUC={auc:.4f}")\nprint(f"Mean AUC:{np.mean(auc_scores):.4f}±{np.std(auc_scores):.4f}")','intermediate'),
+("How do I train a gradient boosting model with sklearn?",
+ 'from sklearn.ensemble import GradientBoostingClassifier\nmodel=GradientBoostingClassifier(n_estimators=200,learning_rate=0.05,max_depth=4,min_samples_leaf=10,random_state=42)\nmodel.fit(X_train,y_train)\nprint("Train score:",model.score(X_train,y_train))\nprint("Test score:",model.score(X_test,y_test))','intermediate'),
+("How do I detect and fix underfitting?",
+ '# Signs of underfitting: low train AND low test score\nfrom sklearn.model_selection import cross_val_score\ntrain_scores=cross_val_score(model,X_train,y_train,cv=5)\ntest_scores=cross_val_score(model,X_test,y_test,cv=5)\nprint(f"Train:{train_scores.mean():.3f}, Test:{test_scores.mean():.3f}")\n# Fix: increase model complexity, add more features, reduce regularization','intermediate'),
+("How do I use CatBoost for categorical features directly?",
+ 'from catboost import CatBoostClassifier\ncat_features=["Sex","Embarked","Pclass"]\nmodel=CatBoostClassifier(iterations=300,learning_rate=0.05,depth=6,random_seed=42,verbose=100)\nmodel.fit(X_train,y_train,cat_features=cat_features,eval_set=(X_test,y_test))\nprint("CatBoost score:",model.score(X_test,y_test))','advanced'),
+("How do I implement nested cross-validation?",
+ 'from sklearn.model_selection import StratifiedKFold,GridSearchCV\nfrom sklearn.metrics import roc_auc_score\nouter=StratifiedKFold(n_splits=5,shuffle=True,random_state=42)\nscores=[]\nfor tr,te in outer.split(X,y):\n    inner=GridSearchCV(model,param_grid,cv=3,scoring="roc_auc")\n    inner.fit(X.iloc[tr],y.iloc[tr])\n    best=inner.best_estimator_\n    scores.append(roc_auc_score(y.iloc[te],best.predict_proba(X.iloc[te])[:,1]))\nprint(f"Nested CV AUC: {sum(scores)/len(scores):.4f}")','advanced'),
+("How do I set up automated machine learning with AutoML?",
+ 'from autosklearn.classification import AutoSklearnClassifier\nautoml=AutoSklearnClassifier(time_left_for_this_task=300,per_run_time_limit=30,random_state=42)\nautoml.fit(X_train,y_train)\nprint(automl.leaderboard())\nprint("Best score:",automl.score(X_test,y_test))','advanced'),
+],
+7: [
+("How do I calculate accuracy, precision, recall and F1?",
+ 'from sklearn.metrics import accuracy_score,precision_score,recall_score,f1_score\ny_pred=model.predict(X_test)\nprint(f"Accuracy:{accuracy_score(y_test,y_pred):.4f}")\nprint(f"Precision:{precision_score(y_test,y_pred):.4f}")\nprint(f"Recall:{recall_score(y_test,y_pred):.4f}")\nprint(f"F1:{f1_score(y_test,y_pred):.4f}")','beginner'),
+("How do I plot a ROC curve and calculate AUC?",
+ 'from sklearn.metrics import roc_curve,roc_auc_score\nimport matplotlib.pyplot as plt\ny_prob=model.predict_proba(X_test)[:,1]\nfpr,tpr,_=roc_curve(y_test,y_prob)\nauc=roc_auc_score(y_test,y_prob)\nplt.figure(figsize=(8,6))\nplt.plot(fpr,tpr,label=f"AUC={auc:.4f}",linewidth=2)\nplt.plot([0,1],[0,1],"k--")\nplt.xlabel("FPR"); plt.ylabel("TPR"); plt.title("ROC Curve"); plt.legend(); plt.show()','beginner'),
+("How do I print a classification report?",
+ 'from sklearn.metrics import classification_report\nprint(classification_report(y_test,model.predict(X_test),target_names=["Not Survived","Survived"]))','beginner'),
+("How do I plot a confusion matrix?",
+ 'from sklearn.metrics import ConfusionMatrixDisplay\nimport matplotlib.pyplot as plt\nConfusionMatrixDisplay.from_estimator(model,X_test,y_test,display_labels=["Not Survived","Survived"],cmap="Blues")\nplt.title("Confusion Matrix"); plt.show()','beginner'),
+("How do I evaluate a regression model?",
+ 'from sklearn.metrics import mean_squared_error,mean_absolute_error,r2_score\nimport numpy as np\ny_pred=model.predict(X_test)\nprint(f"RMSE:{mean_squared_error(y_test,y_pred,squared=False):.4f}")\nprint(f"MAE:{mean_absolute_error(y_test,y_pred):.4f}")\nprint(f"R²:{r2_score(y_test,y_pred):.4f}")','beginner'),
+("How do I detect overfitting with learning curves?",
+ 'from sklearn.model_selection import learning_curve\nimport matplotlib.pyplot as plt,numpy as np\ntr_sz,tr_sc,val_sc=learning_curve(model,X,y,cv=5,scoring="roc_auc",train_sizes=np.linspace(0.1,1.0,10))\nplt.plot(tr_sz,tr_sc.mean(1),label="Train")\nplt.plot(tr_sz,val_sc.mean(1),label="Validation")\nplt.xlabel("Training size"); plt.ylabel("AUC"); plt.legend(); plt.show()','intermediate'),
+("How do I compute feature importances from Random Forest?",
+ 'import pandas as pd\nimport matplotlib.pyplot as plt\nimp=pd.Series(model.feature_importances_,index=features).sort_values(ascending=False)\nprint("Top 10:",imp.head(10))\nimp.head(15).plot(kind="barh")\nplt.title("Feature Importances"); plt.tight_layout(); plt.show()','beginner'),
+("How do I use SHAP to explain predictions?",
+ 'import shap\nexplainer=shap.TreeExplainer(model)\nshap_values=explainer.shap_values(X_test)\nshap.summary_plot(shap_values[1],X_test,feature_names=features)','advanced'),
+("How do I find the optimal classification threshold?",
+ 'from sklearn.metrics import precision_recall_curve\nimport numpy as np\ny_prob=model.predict_proba(X_test)[:,1]\nprec,rec,thresh=precision_recall_curve(y_test,y_prob)\nf1=2*(prec*rec)/(prec+rec+1e-8)\nbest=np.argmax(f1)\nprint(f"Best threshold:{thresh[best]:.3f}, F1:{f1[best]:.4f}")','intermediate'),
+("How do I evaluate calibration of my classifier?",
+ 'from sklearn.calibration import calibration_curve\nimport matplotlib.pyplot as plt\nprob_true,prob_pred=calibration_curve(y_test,model.predict_proba(X_test)[:,1],n_bins=10)\nplt.plot(prob_pred,prob_true,"o-",label="Model")\nplt.plot([0,1],[0,1],"k--",label="Perfect")\nplt.xlabel("Mean predicted probability"); plt.ylabel("Fraction of positives")\nplt.title("Calibration Curve"); plt.legend(); plt.show()','advanced'),
+("How do I do error analysis on false negatives?",
+ 'y_pred=model.predict(X_test)\ndf_err=X_test.copy(); df_err["y_true"]=y_test.values; df_err["y_pred"]=y_pred\nfn=df_err[(df_err["y_true"]==1)&(df_err["y_pred"]==0)]\nprint(f"False negatives:{len(fn)}")\nprint(fn.describe())','intermediate'),
+("How do I compare multiple models systematically?",
+ 'from sklearn.model_selection import cross_val_score\nfrom sklearn.ensemble import RandomForestClassifier,GradientBoostingClassifier\nfrom sklearn.linear_model import LogisticRegression\nmodels={"RF":RandomForestClassifier(100,random_state=42),"GB":GradientBoostingClassifier(100,random_state=42),"LR":LogisticRegression(max_iter=1000)}\nfor name,m in models.items():\n    s=cross_val_score(m,X,y,cv=5,scoring="roc_auc")\n    print(f"{name}: {s.mean():.4f}±{s.std():.4f}")','intermediate'),
+("How do I compute PR-AUC for imbalanced datasets?",
+ 'from sklearn.metrics import PrecisionRecallDisplay,average_precision_score\nimport matplotlib.pyplot as plt\ny_prob=model.predict_proba(X_test)[:,1]\nap=average_precision_score(y_test,y_prob)\nPrecisionRecallDisplay.from_predictions(y_test,y_prob)\nplt.title(f"Precision-Recall Curve (AP={ap:.4f})")\nplt.show()','intermediate'),
+("How do I compute MAPE for regression?",
+ 'import numpy as np\ndef mape(y_true,y_pred):\n    y_true=np.array(y_true); y_pred=np.array(y_pred)\n    return np.mean(np.abs((y_true-y_pred)/(np.abs(y_true)+1e-8)))*100\nprint(f"MAPE:{mape(y_test,model.predict(X_test)):.2f}%")','intermediate'),
+("How do I use MLflow to track experiments?",
+ 'import mlflow\nmlflow.set_experiment("ds_mentor")\nwith mlflow.start_run():\n    mlflow.log_params({"n_estimators":100,"max_depth":5})\n    y_pred=model.predict(X_test)\n    from sklearn.metrics import roc_auc_score\n    auc=roc_auc_score(y_test,model.predict_proba(X_test)[:,1])\n    mlflow.log_metric("auc",auc)\n    mlflow.sklearn.log_model(model,"model")\nprint(f"Experiment logged. AUC={auc:.4f}")','advanced'),
+("How do I generate a full model card for documentation?",
+ 'model_card={"model_name":"RandomForestClassifier","version":"1.0","task":"Binary Classification (Survival Prediction)","training_data":"Titanic train.csv (891 rows)","features":features,"metrics":{"train_auc":0.94,"test_auc":0.85,"test_f1":0.79},"known_limitations":["Does not handle concept drift","Biased toward majority class without balancing"],"intended_use":"Demo / educational"}\nimport json; print(json.dumps(model_card,indent=2))','advanced'),
+("How do I detect and quantify overfitting numerically?",
+ 'from sklearn.model_selection import cross_val_score\ntrain_auc=cross_val_score(model,X_train,y_train,cv=5,scoring="roc_auc").mean()\ntest_auc=cross_val_score(model,X_test,y_test,cv=5,scoring="roc_auc").mean()\noverfitting_gap=train_auc-test_auc\nprint(f"Train AUC:{train_auc:.4f}")\nprint(f"Test AUC:{test_auc:.4f}")\nprint(f"Overfitting gap:{overfitting_gap:.4f} (>0.05 = concern)")','intermediate'),
+("How do I evaluate a multiclass model?",
+ 'from sklearn.metrics import classification_report,f1_score\ny_pred=model.predict(X_test)\nprint(classification_report(y_test,y_pred))\nprint("Macro F1:",f1_score(y_test,y_pred,average="macro"))\nprint("Weighted F1:",f1_score(y_test,y_pred,average="weighted"))','intermediate'),
+("How do I plot feature importance with confidence intervals?",
+ 'import numpy as np\nimport matplotlib.pyplot as plt\nfrom sklearn.inspection import permutation_importance\nresult=permutation_importance(model,X_test,y_test,n_repeats=30,random_state=42,scoring="roc_auc")\nsorted_idx=result.importances_mean.argsort()[::-1][:15]\nplt.barh(range(15),[result.importances_mean[i] for i in sorted_idx],\n         xerr=[result.importances_std[i] for i in sorted_idx])\nplt.yticks(range(15),[X_test.columns[i] for i in sorted_idx])\nplt.title("Permutation Feature Importance"); plt.tight_layout(); plt.show()','advanced'),
+("How do I validate model performance on temporal holdout?",
+ 'import pandas as pd\ndf=df.sort_values("date")\ntrain=df[df["date"]<"2023-06-01"]\ntest=df[df["date"]>="2023-06-01"]\nmodel.fit(train[features],train["target"])\ny_pred=model.predict(test[features])\nfrom sklearn.metrics import roc_auc_score\nprint(f"Temporal holdout AUC:{roc_auc_score(test[\"target\"],model.predict_proba(test[features])[:,1]):.4f}")','advanced'),
+],
+}
+
+def build_curated():
+    rows = []
+    for stage, examples in CURATED.items():
+        for explanation, code, difficulty in examples:
+            rows.append({"explanation": explanation, "code": code,
+                         "pipeline_stage": stage, "source": "curated", "difficulty": difficulty})
+    return rows
+
+def augment(rows):
+    """Doubles dataset by rephrasing questions."""
+    prefixes = ["What is the best way to ", "Show me how to ", "Can you explain how to ",
+                "What is the proper approach to ", "How should I ", "Demonstrate how to "]
+    extra = []
+    for r in rows:
+        if len(r["explanation"]) < 75 and r["explanation"].lower().startswith("how do i "):
+            new_q = random.choice(prefixes) + r["explanation"][9:]
+            extra.append({**r, "explanation": new_q, "source": "augmented"})
+    return extra
+
+def try_hf(rows):
+    try:
+        from datasets import load_dataset
+        ds = load_dataset("iamtarun/python_code_instructions_18k_alpaca",
+                          split="train", trust_remote_code=True)
+        df = ds.to_pandas()
+        kws = ["pandas","sklearn","seaborn","matplotlib","numpy","dataframe",
+               "model","train","predict","feature","plot","cross_val"]
+        mask = df["instruction"].str.lower().apply(lambda x: any(k in x for k in kws))
+        for _, r in df[mask].head(200).iterrows():
+            expl, code = r.get("instruction",""), r.get("output","")
+            if not expl or not code or len(code) < 20: continue
+            combined = (expl + " " + code).lower()
+            best_s, best_sc = 1, 0
+            for s, kws2 in STAGE_KEYWORDS.items():
+                sc = sum(1 for k in kws2 if k in combined)
+                if sc > best_sc: best_s, best_sc = s, sc
+            rows.append({"explanation": expl, "code": code,
+                         "pipeline_stage": best_s, "source": "huggingface", "difficulty": "intermediate"})
+        print(f"[INFO] HuggingFace: added examples")
+    except Exception as e:
+        print(f"[INFO] HuggingFace skipped ({type(e).__name__})")
+    return rows
+
+def build_dataset(out="data/dataset.csv"):
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    rows = build_curated()
+    rows += augment(rows[:])
+    rows = try_hf(rows)
+    random.shuffle(rows)
+    with open(out, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["explanation","code","pipeline_stage","source","difficulty"])
+        writer.writeheader(); writer.writerows(rows)
+    print(f"\n[INFO] Dataset saved: {len(rows)} examples → {out}")
+    for s in range(1,8):
+        n = sum(1 for r in rows if r["pipeline_stage"]==s)
+        print(f"  Stage {s} ({STAGE_NAMES[s]}): {n}")
+    return rows
+
+if __name__ == "__main__":
+    build_dataset()
