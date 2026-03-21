@@ -75,8 +75,6 @@ data/embeddings/*
 *.pickle
 
 # Model files (large)
-models/*
-!models/.gitkeep
 *.bin
 *.pt
 *.pth
