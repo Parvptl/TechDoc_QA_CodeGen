@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DS Mentor Pro</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Sidebar -->
+    <aside id="sidebar">
+        <div class="sidebar-header">
+            <h1>DS Mentor Pro</h1>
+            <p class="subtitle">Agentic Data Science Tutor</p>
+        </div>
+
+        <div class="sidebar-section">
+            <h3>Pipeline Progress</h3>
+            <div id="pipeline-stages"></div>
+            <div class="progress-bar-container">
+                <div id="progress-bar" class="progress-bar" style="width:0%"></div>
+            </div>
+            <p id="progress-text" class="progress-text">0/7 completed</p>
+            <p id="next-step-hint" class="next-step-hint"></p>
+        </div>
+
+        <div class="sidebar-section">
+            <h3>Dataset</h3>
+            <label class="upload-area" id="upload-area">
+                <input type="file" id="file-input" accept=".csv,.xlsx,.xls" hidden>
+                <span class="upload-icon">+</span>
+                <span class="upload-text">Upload CSV or Excel</span>
+            </label>
+            <div id="dataset-info" class="dataset-info" style="display:none;"></div>
+        </div>
+
+        <div class="sidebar-section">
+            <h3>Skill Levels</h3>
+            <div id="skill-levels"></div>
+        </div>
+
+        <button id="reset-btn" class="reset-btn">Reset Session</button>
+    </aside>
+
+    <!-- Main chat area -->
+    <main id="main">
+        <header class="chat-header">
+            <button id="sidebar-toggle" class="sidebar-toggle">&#9776;</button>
+            <div>
+                <h2>DS Mentor Pro</h2>
+                <p class="header-sub">Ask anything about your data science project</p>
+            </div>
+        </header>
+
+        <div id="chat-messages" class="chat-messages">
+            <div class="welcome-msg">
+                <h3>Welcome to DS Mentor Pro</h3>
+                <p>Ask a question about any stage of the data science pipeline. Upload a dataset to get context-aware guidance.</p>
+                <div class="quick-prompts">
+                    <button class="quick-btn" data-q="What is the goal of a Titanic survival prediction task?">Problem Understanding</button>
+                    <button class="quick-btn" data-q="How do I load a CSV file with pandas?">Data Loading</button>
+                    <button class="quick-btn" data-q="How do I create a correlation heatmap?">EDA</button>
+                    <button class="quick-btn" data-q="How do I fill missing values in a numeric column?">Preprocessing</button>
+                    <button class="quick-btn" data-q="How do I apply one-hot encoding?">Feature Engineering</button>
+                    <button class="quick-btn" data-q="Train a Random Forest classifier">Modeling</button>
+                    <button class="quick-btn" data-q="How do I calculate AUC-ROC score?">Evaluation</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="chat-input-area">
+            <div class="input-wrapper">
+                <textarea id="chat-input" placeholder="Ask about your data science project..." rows="1"></textarea>
+                <button id="send-btn" class="send-btn" disabled>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/></svg>
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
