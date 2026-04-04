@@ -104,7 +104,13 @@ class HybridRetriever:
     def _rrf(rank: int, k: int = 60) -> float:
         return 1.0 / (k + rank + 1)
 
-    def retrieve(self, query: str, active_stage: int = -1, top_k: int = 3) -> List[Dict[str, Any]]:
+    def retrieve(
+        self,
+        query: str,
+        active_stage: int = -1,
+        top_k: int = 3,
+        skill_level: float = 0.5,
+    ) -> List[Dict[str, Any]]:
         """Returns top matching docs with retrieval scores."""
         if not self.documents:
             return []
@@ -139,11 +145,24 @@ class HybridRetriever:
 
         ranked = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)
         picked = []
-        for idx, score in ranked:
+        for recency_rank, (idx, score) in enumerate(ranked):
             doc = dict(self.documents[idx])
             if active_stage > 0 and doc.get("stage") == active_stage:
                 score *= self.stage_boost
-            doc["retrieval_score"] = float(score)
+
+            # Lightweight personalized reranking:
+            # beginner -> boost explanatory answers
+            # advanced -> boost code-heavy answers
+            answer_len = len(str(doc.get("answer", "")).split())
+            code_len = len(str(doc.get("code", "")).split())
+            expl_score = min(1.0, answer_len / 60.0)
+            code_score = min(1.0, code_len / 40.0)
+            skill_match = (1.0 - skill_level) * expl_score + skill_level * code_score
+            recency_bonus = 1.0 / float(recency_rank + 1)
+            final_score = (0.7 * float(score)) + (0.2 * skill_match) + (0.1 * recency_bonus)
+
+            doc["retrieval_score"] = float(final_score)
+            doc["skill_match_score"] = float(skill_match)
             picked.append(doc)
             if len(picked) >= max(top_k * 3, top_k):
                 break

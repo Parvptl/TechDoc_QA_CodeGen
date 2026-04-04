@@ -159,6 +159,14 @@ if "pending_question" not in st.session_state:
     st.session_state.pending_question = None
 if "dataset_profile" not in st.session_state:
     st.session_state.dataset_profile = None
+if "quiz_payload" not in st.session_state:
+    st.session_state.quiz_payload = None
+if "quiz_result" not in st.session_state:
+    st.session_state.quiz_result = None
+if "checkpoint_feedback" not in st.session_state:
+    st.session_state.checkpoint_feedback = ""
+if "report_export" not in st.session_state:
+    st.session_state.report_export = None
 
 # ---------------------------------------------------------------------------
 # Sidebar
@@ -212,6 +220,68 @@ with st.sidebar:
 
     st.divider()
 
+    # -- Learning analytics snapshot --
+    st.markdown("### Learning Analytics")
+    progress_snapshot = agent.get_progress("default")
+    c1, c2 = st.columns(2)
+    c1.metric("Questions", progress_snapshot.get("questions_asked", 0))
+    c2.metric("Misconceptions", progress_snapshot.get("misconceptions", 0))
+    c3, c4 = st.columns(2)
+    c3.metric("Avg confidence", f"{progress_snapshot.get('avg_confidence', 0):.1f}%")
+    c4.metric("Avg latency", f"{progress_snapshot.get('avg_response_ms', 0)} ms")
+    c5, c6 = st.columns(2)
+    c5.metric("Quizzes", progress_snapshot.get("quiz_count", 0))
+    c6.metric("Avg quiz", f"{int(progress_snapshot.get('avg_quiz_score', 0) * 100)}%")
+    c7, c8 = st.columns(2)
+    c7.metric("Checkpoints passed", progress_snapshot.get("checkpoint_passed", 0))
+    c8.metric("Checkpoints total", progress_snapshot.get("checkpoint_total", 0))
+    with st.expander("Stage query distribution", expanded=False):
+        stage_dist = progress_snapshot.get("stage_distribution", {})
+        if stage_dist:
+            for stage_num in sorted(stage_dist.keys()):
+                st.write(f"Stage {stage_num}: {stage_dist[stage_num]} queries")
+        else:
+            st.caption("No analytics yet for this session.")
+
+    with st.expander("Learning Dashboard", expanded=False):
+        dashboard = agent.get_learning_dashboard("default")
+        trends = dashboard.get("trends", {})
+        if trends.get("confidence_series"):
+            st.caption("Confidence trend")
+            st.line_chart(
+                {
+                    "confidence": [x["value"] for x in trends["confidence_series"]],
+                }
+            )
+        if trends.get("quiz_series"):
+            st.caption("Quiz score trend")
+            st.line_chart(
+                {
+                    "quiz_score": [x["value"] for x in trends["quiz_series"]],
+                }
+            )
+        if trends.get("latency_series"):
+            st.caption("Response latency trend (ms)")
+            st.line_chart(
+                {
+                    "latency_ms": [x["value"] for x in trends["latency_series"]],
+                }
+            )
+        cexp1, cexp2 = st.columns(2)
+        if cexp1.button("Export report (.md)", key="export_report_md"):
+            st.session_state.report_export = agent.export_learning_report("default", "markdown")
+        if cexp2.button("Export report (.json)", key="export_report_json"):
+            st.session_state.report_export = agent.export_learning_report("default", "json")
+        if st.session_state.report_export:
+            rep = st.session_state.report_export
+            st.caption(f"Saved report: {rep.get('path', '')}")
+            preview = rep.get("content", "")
+            if len(preview) > 1200:
+                preview = preview[:1200] + "\n..."
+            st.text_area("Report preview", value=preview, height=180)
+
+    st.divider()
+
     # -- Dataset upload --
     st.markdown("### Dataset")
     uploaded_file = st.file_uploader(
@@ -258,6 +328,85 @@ st.markdown('<div class="main-subtitle">Agentic Data Science Tutor</div>', unsaf
 
 # -- Dataset preview (collapsible) --
 if st.session_state.dataset_profile and agent.dataset_profiler.dataframe is not None:
+    project_plan = agent.get_project_plan()
+    with st.expander("Project-Based Learning Mode", expanded=True):
+        st.markdown(f"**{project_plan.get('title', 'Project plan')}**")
+        st.caption(project_plan.get("brief", ""))
+        for cp in project_plan.get("checkpoints", []):
+            status = "Focus" if cp.get("status") == "focus" else "Ready"
+            lock = "Unlocked" if cp.get("unlocked", False) else "Locked"
+            st.write(
+                f"Stage {cp['stage_num']} - {cp['stage_name']} "
+                f"({int(cp.get('mastery', 0) * 100)}% mastery) [{status} | {lock}]"
+            )
+            st.caption(cp.get("checkpoint", ""))
+        next_stage = int(project_plan.get("next_required_stage", 1))
+        st.markdown(f"**Submit checkpoint for Stage {next_stage}**")
+        checkpoint_evidence = st.text_area(
+            "Checkpoint evidence (brief explanation or code snippet)",
+            key="checkpoint_evidence_text",
+            height=110,
+        )
+        if st.button(f"Submit Stage {next_stage} checkpoint", key="submit_checkpoint_btn"):
+            result = agent.submit_project_checkpoint("default", next_stage, checkpoint_evidence)
+            st.session_state.checkpoint_feedback = result.get("message", "")
+            if result.get("accepted"):
+                st.success(st.session_state.checkpoint_feedback)
+                st.rerun()
+            else:
+                st.warning(st.session_state.checkpoint_feedback)
+                assess = result.get("assessment", {})
+                if assess:
+                    st.caption(
+                        f"Score: {assess.get('score', 0)} (min {assess.get('min_required_score', 0)}) | "
+                        f"Matched keywords: {', '.join(assess.get('matched_keywords', [])) or 'none'}"
+                    )
+        if st.session_state.checkpoint_feedback:
+            st.caption(st.session_state.checkpoint_feedback)
+
+    with st.expander("Quiz Mode", expanded=False):
+        if st.button("Generate quiz", key="generate_quiz_btn"):
+            st.session_state.quiz_payload = agent.generate_quiz("default")
+            st.session_state.quiz_result = None
+            st.rerun()
+
+        quiz_payload = st.session_state.quiz_payload
+        if quiz_payload:
+            st.caption(
+                f"Stage {quiz_payload.get('stage')} quiz | difficulty: {quiz_payload.get('difficulty', 'intermediate')}"
+            )
+            answers = []
+            for q in quiz_payload.get("questions", []):
+                qid = q.get("id", "")
+                st.markdown(f"**{qid}. {q.get('question', '')}**")
+                if q.get("type") == "mcq":
+                    selected = st.radio(
+                        f"Choose answer for {qid}",
+                        options=q.get("options", []),
+                        key=f"quiz_ans_{qid}",
+                        label_visibility="collapsed",
+                    )
+                    answers.append({"id": qid, "answer": selected})
+                else:
+                    text_ans = st.text_input(
+                        f"Answer for {qid}",
+                        key=f"quiz_ans_{qid}",
+                        label_visibility="collapsed",
+                    )
+                    answers.append({"id": qid, "answer": text_ans})
+
+            if st.button("Submit quiz", key="submit_quiz_btn"):
+                st.session_state.quiz_result = agent.grade_quiz(
+                    session_id="default",
+                    stage=quiz_payload.get("stage"),
+                    answers=answers,
+                )
+                st.rerun()
+
+            if st.session_state.quiz_result:
+                qr = st.session_state.quiz_result
+                st.success(f"Quiz score: {int(qr.get('score', 0) * 100)}% ({qr.get('correct', 0)}/{qr.get('total', 0)})")
+
     with st.expander("Dataset preview", expanded=False):
         st.dataframe(agent.dataset_profiler.dataframe.head(10), use_container_width=True)
         col_info = st.session_state.dataset_profile.get("column_info", [])
@@ -298,6 +447,9 @@ for msg_idx, msg in enumerate(st.session_state.messages):
             st.markdown(msg["content"])
             if msg.get("code"):
                 st.code(msg["code"], language="python")
+            if msg.get("code_explained"):
+                with st.expander("Line-by-line explanation"):
+                    st.code(msg["code_explained"], language="python")
 
         if msg.get("confidence") and msg["role"] == "assistant":
             st.markdown(_confidence_html(msg["confidence"]), unsafe_allow_html=True)
@@ -308,6 +460,17 @@ for msg_idx, msg in enumerate(st.session_state.messages):
         if msg.get("antipattern_warnings"):
             for w in msg["antipattern_warnings"]:
                 st.markdown(f'<div class="antipattern-note">{w}</div>', unsafe_allow_html=True)
+        if msg.get("misconception_alerts"):
+            for m in msg["misconception_alerts"]:
+                st.markdown(
+                    f'<div class="pipeline-note"><b>Misconception check:</b> {m.get("correction", "")}</div>',
+                    unsafe_allow_html=True,
+                )
+        if msg.get("confidence_label") and msg["role"] == "assistant":
+            st.caption(msg["confidence_label"])
+        if msg.get("critic_feedback") and msg["role"] == "assistant":
+            with st.expander("Quality review"):
+                st.markdown(msg["critic_feedback"])
 
         if msg.get("suggested_questions"):
             st.markdown("---")
@@ -344,6 +507,7 @@ if prompt:
                 "role": "assistant",
                 "content": response["text"],
                 "code": response.get("code", ""),
+                "code_explained": response.get("code_explained", ""),
                 "mode": mode,
                 "hint": response.get("hint", ""),
                 "pipeline_warnings": response.get("pipeline_warnings", []),
@@ -351,6 +515,9 @@ if prompt:
                 "suggested_questions": response.get("suggested_questions", []),
                 "stage_name": response["stage_name"],
                 "confidence": response.get("confidence", 0),
+                "confidence_label": response.get("confidence_label", ""),
+                "misconception_alerts": response.get("misconception_alerts", []),
+                "critic_feedback": response.get("critic", {}).get("feedback", ""),
             }
 
             with st.chat_message("assistant"):
@@ -364,6 +531,9 @@ if prompt:
                     st.markdown(response["text"])
                     if response.get("code"):
                         st.code(response["code"], language="python")
+                    if response.get("code_explained"):
+                        with st.expander("Line-by-line explanation"):
+                            st.code(response["code_explained"], language="python")
 
                 conf = response.get("confidence", 0)
                 if conf:
@@ -375,6 +545,18 @@ if prompt:
                 if response.get("antipattern_warnings"):
                     for w in response["antipattern_warnings"]:
                         st.markdown(f'<div class="antipattern-note">{w}</div>', unsafe_allow_html=True)
+                if response.get("misconception_alerts"):
+                    for m in response["misconception_alerts"]:
+                        st.markdown(
+                            f'<div class="pipeline-note"><b>Misconception check:</b> {m.get("correction", "")}</div>',
+                            unsafe_allow_html=True,
+                        )
+                if response.get("confidence_label"):
+                    st.caption(response["confidence_label"])
+                critic_feedback = response.get("critic", {}).get("feedback", "")
+                if critic_feedback:
+                    with st.expander("Quality review"):
+                        st.markdown(critic_feedback)
 
                 if response.get("suggested_questions"):
                     st.markdown("---")

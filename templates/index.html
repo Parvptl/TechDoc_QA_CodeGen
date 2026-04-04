@@ -9,8 +9,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
+    <div id="toast-container" aria-live="polite" aria-atomic="true"></div>
     <!-- Sidebar -->
-    <aside id="sidebar">
+    <aside id="sidebar" aria-label="Sidebar" aria-hidden="false">
         <div class="sidebar-header">
             <h1>DS Mentor Pro</h1>
             <p class="subtitle">Agentic Data Science Tutor</p>
@@ -41,20 +42,71 @@
             <div id="skill-levels"></div>
         </div>
 
+        <div class="sidebar-section">
+            <h3>Learning Analytics</h3>
+            <div id="analytics-cards" class="analytics-cards"></div>
+            <details class="dashboard-panel">
+                <summary>Learning Dashboard</summary>
+                <div class="trend-block">
+                    <span>Confidence trend</span>
+                    <div id="trend-confidence" class="sparkline"></div>
+                </div>
+                <div class="trend-block">
+                    <span>Quiz trend</span>
+                    <div id="trend-quiz" class="sparkline"></div>
+                </div>
+                <div class="trend-block">
+                    <span>Latency trend</span>
+                    <div id="trend-latency" class="sparkline"></div>
+                </div>
+                <div class="report-actions">
+                    <button id="export-md-btn" class="mini-btn">Export .md</button>
+                    <button id="export-json-btn" class="mini-btn">Export .json</button>
+                </div>
+                <span id="report-status-chip" class="status-chip neutral">Idle</span>
+                <span id="report-status-time" class="status-time">updated --:--</span>
+                <p id="report-path" class="hint"></p>
+            </details>
+        </div>
+
+        <div class="sidebar-section">
+            <h3>Project Checkpoint</h3>
+            <p id="project-next-stage" class="hint">Upload dataset to enable.</p>
+            <textarea id="checkpoint-evidence" rows="4" placeholder="Brief explanation or code snippet..."></textarea>
+            <button id="submit-checkpoint-btn" class="mini-btn full">Submit Checkpoint</button>
+            <span id="checkpoint-status-chip" class="status-chip neutral">Not submitted</span>
+            <span id="checkpoint-status-time" class="status-time">updated --:--</span>
+            <p id="checkpoint-feedback" class="hint"></p>
+        </div>
+
+        <div class="sidebar-section">
+            <h3>Quiz Mode</h3>
+            <button id="generate-quiz-btn" class="mini-btn full">Generate Quiz</button>
+            <div id="quiz-container" class="quiz-container" style="display:none;">
+                <div id="quiz-meta" class="hint"></div>
+                <div id="quiz-questions"></div>
+                <button id="submit-quiz-btn" class="mini-btn full">Submit Quiz</button>
+                <span id="quiz-status-chip" class="status-chip neutral">No quiz yet</span>
+                <span id="quiz-status-time" class="status-time">updated --:--</span>
+                <p id="quiz-result" class="hint"></p>
+            </div>
+        </div>
+
         <button id="reset-btn" class="reset-btn">Reset Session</button>
     </aside>
+    <div id="sidebar-backdrop" aria-hidden="true"></div>
 
     <!-- Main chat area -->
     <main id="main">
         <header class="chat-header">
-            <button id="sidebar-toggle" class="sidebar-toggle">&#9776;</button>
+            <button id="sidebar-toggle" class="sidebar-toggle" aria-label="Toggle sidebar" aria-expanded="false" aria-controls="sidebar">&#9776;</button>
             <div>
                 <h2>DS Mentor Pro</h2>
                 <p class="header-sub">Ask anything about your data science project</p>
             </div>
         </header>
 
-        <div id="chat-messages" class="chat-messages">
+        <div id="chat-messages" class="chat-messages" role="log" aria-live="polite" aria-label="Chat messages">
             <div class="welcome-msg">
                 <h3>Welcome to DS Mentor Pro</h3>
                 <p>Ask a question about any stage of the data science pipeline. Upload a dataset to get context-aware guidance.</p>
@@ -72,8 +124,9 @@
 
         <div class="chat-input-area">
             <div class="input-wrapper">
-                <textarea id="chat-input" placeholder="Ask about your data science project..." rows="1"></textarea>
-                <button id="send-btn" class="send-btn" disabled>
+                <label for="chat-input" class="sr-only">Chat input</label>
+                <textarea id="chat-input" placeholder="Ask about your data science project..." rows="1" aria-label="Type your question"></textarea>
+                <button id="send-btn" class="send-btn" disabled aria-label="Send message">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/></svg>
                 </button>
             </div>

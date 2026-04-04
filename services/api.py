@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from services.routes import chat_router, health_router, feedback_router, upload_router
+from services.routes import chat_router, health_router, feedback_router, upload_router, v1_router
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -18,6 +18,7 @@ app.include_router(health_router)
 app.include_router(chat_router)
 app.include_router(upload_router)
 app.include_router(feedback_router)
+app.include_router(v1_router)
 
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 

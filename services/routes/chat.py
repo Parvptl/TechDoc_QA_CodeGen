@@ -1,10 +1,9 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from core.agent import MentorAgent
+from services.runtime import get_agent
 
 router = APIRouter(tags=["chat"])
-agent = MentorAgent()
 
 
 class QueryRequest(BaseModel):
@@ -16,6 +15,6 @@ class QueryRequest(BaseModel):
 @router.post("/chat")
 def chat(request: QueryRequest):
     try:
-        return agent.process_sync(request.query, request.code, request.session_id)
+        return get_agent().process_sync(request.query, request.code, request.session_id)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

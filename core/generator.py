@@ -20,6 +20,10 @@ class Generator:
         why_data: dict = None,
         pipeline_warnings: list = None,
         dataset_context: str = "",
+        pedagogy_mode: str = "direct",
+        planner_constraints: list = None,
+        misconception_corrections: list = None,
+        retry_feedback: str = "",
     ) -> dict:
         """Build a structured mentor response from retrieved context.
 
@@ -46,6 +50,10 @@ class Generator:
             skill_level=skill,
             warnings=pipeline_warnings,
             dataset_context=dataset_context,
+            pedagogy_mode=pedagogy_mode,
+            planner_constraints=planner_constraints or [],
+            misconception_corrections=misconception_corrections or [],
+            retry_feedback=retry_feedback,
         )
 
         return {"text": formatted, "code": extracted_code}
@@ -64,12 +72,27 @@ class Generator:
         skill_level: float = 0.5,
         warnings: list = None,
         dataset_context: str = "",
+        pedagogy_mode: str = "direct",
+        planner_constraints: list = None,
+        misconception_corrections: list = None,
+        retry_feedback: str = "",
     ) -> str:
         """Assemble clean, professional markdown without emojis."""
         sections = []
+        planner_constraints = planner_constraints or []
+        misconception_corrections = misconception_corrections or []
 
         if dataset_context:
             sections.append(f"**Dataset context**\n{dataset_context}\n")
+
+        if misconception_corrections:
+            sections.append(f"**Correction before we proceed**\n{misconception_corrections[0]}")
+
+        if pedagogy_mode != "direct":
+            sections.append(f"**Teaching mode**\n{pedagogy_mode.replace('_', ' ').title()}")
+
+        if retry_feedback:
+            sections.append(f"**Quality note**\n{retry_feedback}")
 
         sections.append(f"**Answer**\n{answer}")
 
@@ -88,6 +111,9 @@ class Generator:
         if warnings:
             for w in warnings:
                 sections.append(f"\n**Pipeline note** -- {w}")
+
+        if planner_constraints:
+            sections.append(f"\n**Plan constraints**\n- " + "\n- ".join(planner_constraints))
 
         if skill_level < 0.3:
             sections.append(

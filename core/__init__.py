@@ -12,6 +12,15 @@ from .why_engine import WhyEngine
 from .question_generator import QuestionGenerator
 from .socratic_engine import SocraticEngine
 from .dataset_profiler import DatasetProfiler
+from .agents.planner import PlannerAgent, Plan, SubTask
+from .agents.critic import CriticAgent, CriticScore
+from .detection.misconception import MisconceptionDetector
+from .retrieval.query_expand import QueryExpander
+from .debug_assistant import DebugAssistant
+from .project_mode import ProjectModeEngine
+from .code_annotator import CodeAnnotator
+from .checkpoint_assessor import CheckpointAssessor, CheckpointAssessment
+from .quiz_engine import QuizEngine, QuizGrade
 
 __all__ = [
     "MentorAgent",
@@ -29,4 +38,18 @@ __all__ = [
     "QuestionGenerator",
     "SocraticEngine",
     "DatasetProfiler",
+    "PlannerAgent",
+    "Plan",
+    "SubTask",
+    "CriticAgent",
+    "CriticScore",
+    "MisconceptionDetector",
+    "QueryExpander",
+    "DebugAssistant",
+    "ProjectModeEngine",
+    "CodeAnnotator",
+    "CheckpointAssessor",
+    "CheckpointAssessment",
+    "QuizEngine",
+    "QuizGrade",
 ]
