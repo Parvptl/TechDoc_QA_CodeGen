@@ -49,7 +49,8 @@ class MentorAgent:
             self.retriever.add_documents(data_docs)
 
         self.code_engine = CodeEngine()
-        self.generator = Generator()
+        use_codet5 = str(os.environ.get("USE_CODET5", "0")).strip().lower() in {"1", "true", "yes", "on"}
+        self.generator = Generator(config={"provider": "template", "use_codet5": use_codet5})
         self.classifier = StageClassifier()
         self.tracker = PipelineTracker()
         self.scorer = ConfidenceScorer()
@@ -83,11 +84,21 @@ class MentorAgent:
     @staticmethod
     def _load_default_docs():
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        dataset_path = os.path.join(repo_root, "data", "dataset.csv")
-        if not os.path.exists(dataset_path):
-            return []
-        with open(dataset_path, "r", encoding="utf-8") as fh:
-            return list(csv.DictReader(fh))
+        env_path = os.environ.get("DATASET_PATH", "").strip()
+        candidates = []
+        if env_path:
+            candidates.append(env_path)
+        candidates.extend(
+            [
+                os.path.join(repo_root, "data", "runtime_dataset.csv"),
+                os.path.join(repo_root, "data", "dataset.csv"),
+            ]
+        )
+        for dataset_path in candidates:
+            if os.path.exists(dataset_path):
+                with open(dataset_path, "r", encoding="utf-8") as fh:
+                    return list(csv.DictReader(fh))
+        return []
 
     @staticmethod
     def _token_set(text: str):
@@ -519,6 +530,7 @@ class MentorAgent:
             pedagogy_mode=plan.pedagogy_mode,
             planner_constraints=plan.constraints,
             misconception_corrections=misconception_corrections,
+            stage_name=stage_name,
         )
 
         # 7b. Critic checks with single retry
@@ -545,6 +557,7 @@ class MentorAgent:
                 planner_constraints=plan.constraints,
                 misconception_corrections=misconception_corrections,
                 retry_feedback=critic_score.feedback,
+                stage_name=stage_name,
             )
             critic_score = self.critic.evaluate(
                 response_text=gen_output["text"],

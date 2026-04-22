@@ -2,8 +2,12 @@ services:
   - type: web
     name: dsmentor
     runtime: python
-    buildCommand: pip install -r requirements-deploy.txt && python data/generate_dataset_simple.py
+    buildCommand: pip install -r requirements-deploy.txt && python data/generate_dataset_simple.py && python scripts/prepare_runtime_dataset.py --source data/dataset.csv --target data/runtime_dataset.csv && python scripts/prepare_codet5_model.py --target models/codet5_finetuned --source models/codet5_finetuned_train_smoke
     startCommand: uvicorn services.api:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.5"
+      - key: DATASET_PATH
+        value: "data/runtime_dataset.csv"
+      - key: USE_CODET5
+        value: "1"

@@ -1,273 +1,367 @@
-# DS Mentor Pro -- Agentic Data Science Tutor
+# DS Mentor Pro
 
-An agentic AI system that guides users through the complete data science pipeline using a ReAct-style agent, hybrid RAG retrieval, sandboxed code execution, and intelligent workflow tracking.
+Beginner-focused NLP mentor for the complete data science workflow.
 
-Built as a production-ready restructure of a course prototype. Fully modular, tested, and deployable.
-
----
-
-## Key Features
-
-| Feature | Description |
-|---------|-------------|
-| **ReAct Agent Loop** | Sequential orchestrator: classify, retrieve, execute, detect, generate, score, persist. No LangChain dependency. |
-| **Hybrid Retrieval** | BM25 (sparse) + optional dense embeddings + Reciprocal Rank Fusion + optional cross-encoder reranking. Stage-aware boosting. |
-| **Sandboxed Code Execution** | AST-validated Python execution in isolated subprocess. Import whitelist, blocked dangerous operations, matplotlib capture. |
-| **Pipeline Guardian** | Tracks progress through 7 DS stages. Detects skipped steps, suggests next steps. |
-| **Anti-Pattern Detection** | Flags data leakage, missing train/test split, fitting on test data, blind dropna, no validation strategy, and more. |
-| **Confidence Scoring** | Composite score from retrieval quality, classifier confidence, query-answer overlap, and code validity. |
-| **Skill Adaptation** | Tracks user skill level per stage. Calibrates explanation depth (beginner / intermediate / advanced). |
-| **Session Memory** | Multi-turn conversation with context preservation and persistence across messages. |
-| **Dataset Profiler** | Upload CSV/Excel, auto-detect schema, compute summary statistics, inject dataset context into responses. |
+DS Mentor is designed to guide learners stage-by-stage (problem framing -> data loading -> EDA -> preprocessing -> feature engineering -> modeling -> evaluation). It combines retrieval-based grounding, stage classification, anti-pattern detection, and optional CodeT5 code generation.
 
 ---
 
-## Architecture
+## 1) What This Project Does
 
-```
-                           +-----------------------+
-                           |   Streamlit UI /       |
-                           |   FastAPI Server        |
-                           +-----------+-----------+
-                                       |
-                                       v
-                           +-----------------------+
-                           |   MentorAgent          |
-                           |   (ReAct Orchestrator)  |
-                           +-----------+-----------+
-                                       |
-           +---------------+-----------+-----------+----------------+
-           v               v           v           v                v
-    +-------------+ +----------+ +---------+ +----------+ +-------------+
-    |   Stage     | | Hybrid   | |  Code   | |  Anti-   | |  Response   |
-    | Classifier  | |Retriever | | Engine  | | Pattern  | | Generator   |
-    | (7 stages)  | | BM25+RRF | | Sandbox | | Detector | | Template/LLM|
-    +-------------+ +----------+ +---------+ +----------+ +-------------+
-           |                                                      |
-    +------+------------------------------------------------------+
-    |
-    +-- Pipeline Tracker (workflow state machine + next-step suggestions)
-    +-- Confidence Scorer (composite reliability)
-    +-- Session Memory (multi-turn context)
-    +-- User Profile (skill tracking per stage)
-    +-- Skill Assessor (adaptive difficulty)
-    +-- Dataset Profiler (schema detection, summary, context injection)
-```
+When a learner asks a question, DS Mentor:
 
-### Agent Flow (per query)
+1. Classifies the query into one of 7 data science stages.
+2. Retrieves relevant grounded context from a curated knowledge base.
+3. Generates a structured teaching response (answer, why, pitfalls, code).
+4. Detects anti-patterns in provided code (e.g., data leakage).
+5. Tracks session progress and suggests next logical learning steps.
 
-```
- 1. Classify  -> Identify pipeline stage (1-7)
- 2. Socratic  -> Optionally respond with a guiding question instead of a direct answer
- 3. Check     -> Detect skipped pipeline stages, generate warnings
- 4. Retrieve  -> BM25 search over 109+ knowledge docs with stage-boosting
- 5. Enrich    -> Extract WHY/WHEN/PITFALL from retrieved docs
- 6. Profile   -> Inject dataset context if a dataset is uploaded
- 7. Generate  -> Assemble structured response from context + code
- 8. Execute   -> Run code in sandbox if response includes code
- 9. Detect    -> Scan for anti-patterns if user provided code
-10. Score     -> Compute composite confidence
-11. Update    -> Save session memory, mark pipeline progress, update skill level
-12. Suggest   -> Generate follow-up question suggestions
-```
+This project prioritizes teaching quality and safe guidance over unconstrained free-form generation.
 
 ---
 
-## Project Structure
+## 2) Repository Overview
 
-```
-ds_mentor/
-+-- core/                          # Core AI engine (11 modules)
-|   +-- agent.py                   #   ReAct orchestrator
-|   +-- retriever.py               #   Hybrid BM25 + Dense + RRF + Cross-encoder
-|   +-- code_engine.py             #   AST-validated sandboxed execution
-|   +-- generator.py               #   Template + optional LLM response generation
-|   +-- stage_classifier.py        #   Keyword-weighted pipeline classifier
-|   +-- pipeline_tracker.py        #   7-stage tracking with next-step suggestions
-|   +-- confidence_scorer.py       #   Composite reliability scoring
-|   +-- antipattern_detector.py    #   Code anti-pattern detection (7 patterns)
-|   +-- memory.py                  #   Session memory + user profiles
-|   +-- skill_assessor.py          #   Adaptive difficulty
-|   +-- dataset_profiler.py        #   CSV/Excel schema detection and summary
-|   +-- why_engine.py              #   WHY/WHEN explanation extraction
-|   +-- question_generator.py      #   Follow-up question suggestions
-|   +-- socratic_engine.py         #   Guided discovery mode
-|   +-- __init__.py
-|
-+-- data/                          # Knowledge base
-|   +-- generate_dataset_simple.py #   Dataset generator (pure stdlib)
-|   +-- dataset.csv                #   109+ QA pairs across 7 stages [generated]
-|
-+-- services/                      # API layer
-|   +-- api.py                     #   FastAPI application
-|   +-- routes/
-|       +-- chat.py                #   POST /chat
-|       +-- upload.py              #   POST /upload (with dataset profiling)
-|       +-- feedback.py            #   POST /feedback
-|       +-- health.py              #   GET /health
-|
-+-- ui/                            # Frontend
-|   +-- streamlit_app.py           #   Streamlit chat interface
-|
-+-- tests/                         # Test suite (52 tests)
-|   +-- test_agent.py
-|   +-- test_retriever.py
-|   +-- test_code_engine.py
-|   +-- test_stage_classifier.py
-|   +-- test_pipeline_tracker.py
-|   +-- test_dataset_profiler.py
-|   +-- test_why_engine.py
-|   +-- test_question_generator.py
-|   +-- test_socratic_engine.py
-|   +-- smoke_test.py              #   End-to-end integration (11 subsystems)
-|
-+-- models/configs/                # YAML configurations
-|   +-- retriever_config.yaml
-|   +-- generator_config.yaml
-|
-+-- storage/                       # Persistence layer
-|   +-- session_store.py
-|   +-- vector_store.py
-|
-+-- eval/                          # Evaluation framework
-|   +-- run_eval.py
-|
-+-- requirements.txt
-+-- README.md
-```
+Key directories:
+
+- `core/` - primary runtime engine (agent orchestration, retriever, classifier, generator, detector, memory)
+- `services/` - FastAPI app and routes
+- `ui/` - Streamlit apps
+- `data/` - dataset generators, expanded datasets, utilities
+- `models/` - model training and inference utilities (stage classifier, CodeT5)
+- `evaluation/` and `eval/` - evaluation pipelines and metrics
+- `scripts/` - reproducible training/evaluation prep pipelines
+- `outputs/` - generated reports and metric summaries
+- `tests/` - unit/integration/smoke tests
 
 ---
 
-## Quick Start
+## 3) Core Runtime Architecture
 
-### 1. Install Dependencies
+Main runtime path:
+
+- `services/api.py` -> API server
+- `services/runtime.py` -> singleton agent loader
+- `core/agent.py` -> orchestrates full query pipeline
+
+Core components:
+
+- `core/stage_classifier.py` - stage prediction (trained model if present, heuristic fallback)
+- `core/retriever.py` - BM25-first hybrid retrieval
+- `core/generator.py` - structured response generator (optional CodeT5 code path)
+- `core/antipattern_detector.py` - rule-based anti-pattern detection
+- `core/memory.py` + `storage/session_store.py` - conversation/session memory
+
+Optional generation model:
+
+- `models/finetune_codet5.py` - CodeT5 training + inference helper
+
+---
+
+## 4) Data and Knowledge Base
+
+### Runtime knowledge base schema
+
+Runtime expects:
+
+- `query`
+- `stage`
+- `answer`
+- `code`
+- `why_explanation`
+- `when_to_use`
+- `common_pitfall`
+- `related_questions`
+- `difficulty`
+
+### Expanded data pipeline
+
+Expanded dataset builder:
+
+- `data/build_dataset.py`
+
+It can:
+
+- pull high-vote Kaggle notebooks
+- extract markdown-code pairs
+- infer DS stage labels
+- quality-filter + deduplicate
+- create train/val/test splits
+
+Generated outputs (example):
+
+- `data/kaggle_expanded/dataset.csv`
+- `data/kaggle_expanded/train.csv`
+- `data/kaggle_expanded/val.csv`
+- `data/kaggle_expanded/test.csv`
+
+### Runtime normalization helper
+
+- `scripts/prepare_runtime_dataset.py`
+
+Converts expanded schema into runtime schema and writes:
+
+- `data/runtime_dataset.csv`
+
+---
+
+## 5) Environment Variables
+
+Important runtime flags:
+
+- `DATASET_PATH` (default fallback chain: `data/runtime_dataset.csv` -> `data/dataset.csv`)
+- `USE_CODET5` (`0` or `1`) controls whether generator attempts CodeT5 path
+- `OPENAI_API_KEY` (optional, for optional WHY-engine LLM mode)
+
+Deployment defaults in this repo now point to:
+
+- `DATASET_PATH=data/runtime_dataset.csv`
+- `USE_CODET5=1` (deployment uses CodeT5 path when model is available)
+
+---
+
+## 6) Installation and Quick Start (Classic)
+
+From repo root:
 
 ```bash
 pip install -r requirements.txt
-```
-
-### 2. Generate the Knowledge Base
-
-```bash
 python data/generate_dataset_simple.py
-```
-
-Creates `data/dataset.csv` with 109+ curated QA pairs across all 7 pipeline stages. Uses only Python stdlib.
-
-### 3. Launch the UI
-
-```bash
 streamlit run ui/streamlit_app.py
 ```
 
-Open `http://localhost:8501`. The app runs with BM25-only retrieval out of the box (zero model downloads).
+Open:
 
-### 4. Run Tests
+- `http://localhost:8501`
+
+Run tests:
 
 ```bash
-# Full test suite (52 tests)
 python -m pytest tests/ -v
-
-# End-to-end smoke test (11 subsystems)
 python tests/smoke_test.py
 ```
 
 ---
 
-## Test Results
+## 7) Strict Reproducible Results Pipeline (Recommended)
 
-### Unit and Integration Tests: 52/52 pass
+One command pipeline (Kaggle expansion + train/val/test training + eval):
 
-| Test File | Tests | Status |
-|-----------|-------|--------|
-| test_pipeline_tracker.py | 2 | Pass |
-| test_stage_classifier.py | 2 | Pass |
-| test_code_engine.py | 2 | Pass |
-| test_retriever.py | 2 | Pass |
-| test_agent.py | 2 | Pass |
-| test_dataset_profiler.py | 9 | Pass |
-| test_why_engine.py | 7 | Pass |
-| test_question_generator.py | 6 | Pass |
-| test_socratic_engine.py | 9 | Pass |
-| smoke_test.py | 11 | Pass |
-
----
-
-## Dataset Upload
-
-The system supports dataset-aware responses:
-
-1. Upload a CSV or Excel file via the sidebar in the Streamlit UI (or POST to `/upload`).
-2. The `DatasetProfiler` automatically detects:
-   - Column names and data types
-   - Missing value counts and percentages per column
-   - Numeric vs categorical column separation
-   - Likely target column (heuristic)
-   - Top values for categorical columns, mean/std/min/max for numeric
-3. This profile is injected into the response generator so answers reference your actual data.
-
----
-
-## The 7-Stage Data Science Pipeline
-
-| Stage | Name | What It Covers |
-|-------|------|----------------|
-| 1 | Problem Understanding | Define objective, target, metrics, baseline |
-| 2 | Data Loading | Read CSV/JSON/SQL, check shape, dtypes |
-| 3 | Exploratory Data Analysis | Distributions, correlations, outliers, missing patterns |
-| 4 | Preprocessing | Imputation, outlier capping, scaling, encoding |
-| 5 | Feature Engineering | Polynomial features, PCA, datetime extraction |
-| 6 | Modeling | Random Forest, XGBoost, cross-validation, tuning |
-| 7 | Evaluation | AUC-ROC, confusion matrix, learning curves |
-
-Pipeline Guardian warns when users skip stages and suggests the logical next step.
-
----
-
-## Configuration
-
-### Default (zero-setup)
-
-```python
-{
-    "retriever": {
-        "use_dense": False,
-        "use_cross_encoder": False,
-        "stage_boost": 1.3,
-    },
-    "generator": {"provider": "template"},
-}
+```bash
+python scripts/run_strict_results_pipeline.py --max-notebooks 20 --min-votes 30
 ```
 
-### Full mode (with model downloads)
+Include CodeT5 smoke training/evaluation:
 
-```python
-{
-    "retriever": {
-        "use_dense": True,
-        "embed_model": "all-MiniLM-L6-v2",
-        "use_cross_encoder": True,
-        "rerank_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
-    },
-    "generator": {"provider": "openai", "model": "gpt-3.5-turbo"},
-}
+```bash
+python scripts/run_strict_results_pipeline.py \
+  --max-notebooks 20 \
+  --min-votes 30 \
+  --train-codet5 \
+  --codet5-epochs 1 \
+  --codet5-batch 2
 ```
 
-### Environment Variables
+What it does:
 
-| Variable | Required | Default | Purpose |
-|----------|----------|---------|---------|
-| OPENAI_API_KEY | No | -- | OpenAI LLM for response generation |
-| LLM_PROVIDER | No | template | template or openai |
-| LLM_MODEL | No | gpt-3.5-turbo | OpenAI model name |
+1. Builds expanded dataset from high-vote notebooks
+2. Creates split-labeled files (`train/val/test`)
+3. Prepares runtime dataset (`data/runtime_dataset.csv`)
+4. Trains stage model on train split only
+5. Evaluates stage model on train/val/test
+6. Optional CodeT5 smoke train on train-only subset
+7. Evaluates CodeT5 on held-out val/test
 
 ---
 
-## Code Safety
+## 8) Training Workflows
 
-The sandbox enforces:
+### 8.1 Stage classifier
 
-- **Import whitelist**: pandas, numpy, sklearn, matplotlib, seaborn, scipy, math, statistics, collections, itertools, json, csv, warnings, os, re, datetime, time, typing, functools, operator
-- **Blocked operations**: subprocess, os.system, eval(), exec(), \_\_import\_\_, requests, socket, pickle.loads
-- **Timeout**: 30-second execution limit
-- **Isolation**: Runs in a subprocess with restricted builtins
+Train:
+
+```bash
+python -c "from models.stage_classifier import train_tfidf_svm; train_tfidf_svm(data_path='data/kaggle_expanded/stage_labeled_train.csv', save_path='models/tfidf_svm_fallback.pkl')"
+```
+
+### 8.2 CodeT5
+
+Smoke train:
+
+```bash
+python -c "from models.finetune_codet5 import finetune_codet5; finetune_codet5(data_path='data/kaggle_expanded/stage_labeled_train_smoke.csv', output_dir='models/codet5_finetuned_train_smoke', epochs=1, batch_size=2)"
+```
+
+If Trainer complains about accelerate:
+
+```bash
+pip install accelerate
+```
+
+---
+
+## 9) Evaluation Workflows
+
+### 9.1 Unified suite
+
+```bash
+python -m evaluation.run_suite --dataset evaluation/datasets/small_eval.jsonl
+```
+
+Outputs:
+
+- `outputs/eval_suite_summary.json`
+- `outputs/eval_suite_report.md`
+
+### 9.2 Strict split reports
+
+Generated by strict script:
+
+- `outputs/stage_split_eval.json` (stage train/val/test metrics)
+- `outputs/codet5_split_eval.json` (CodeT5 held-out metrics)
+
+### 9.3 Runtime dataset suite snapshot
+
+Saved as:
+
+- `outputs/eval_suite_summary_runtime.json`
+
+---
+
+## 10) Metrics Used and Why
+
+### Retrieval metrics
+
+- `Precision@k`, `Recall@k`, `MRR`, `nDCG@k`
+
+Why:
+
+- measure relevance coverage and ranking quality of retrieved context
+
+### Classification metrics
+
+- `Accuracy`, `Macro-F1`
+
+Why:
+
+- stage routing strongly affects final answer quality; Macro-F1 protects against stage imbalance
+
+### Detection metrics
+
+- micro `Precision/Recall/F1`
+
+Why:
+
+- anti-pattern detector should be precise and still catch important mistakes
+
+### Generation/code metrics
+
+- `BLEU-1`, `ROUGE-L`
+- code `syntax_rate`, token overlap, line-match proxy
+
+Why:
+
+- text overlap and code validity/overlap are lightweight quality proxies
+
+---
+
+## 11) Deployment
+
+### Render
+
+`render.yaml` now:
+
+- installs deploy dependencies
+- generates runtime dataset
+- prepares CodeT5 model directory
+- starts FastAPI with `uvicorn`
+
+### Docker
+
+`Dockerfile` now:
+
+- installs deploy dependencies
+- generates runtime dataset
+- prepares CodeT5 model directory
+- sets:
+  - `DATASET_PATH=data/runtime_dataset.csv`
+  - `USE_CODET5=1`
+
+### Deploy-time CodeT5 preparation
+
+Script:
+
+- `scripts/prepare_codet5_model.py`
+
+Order:
+
+1. use existing `models/codet5_finetuned` if present
+2. else copy from `models/codet5_finetuned_train_smoke` if present
+3. else download base `Salesforce/codet5-small` to target
+
+---
+
+## 12) API and UI Entrypoints
+
+API:
+
+```bash
+uvicorn services.api:app --host 0.0.0.0 --port 8000
+```
+
+UI:
+
+```bash
+streamlit run ui/streamlit_app.py
+```
+
+---
+
+## 13) Troubleshooting
+
+### File lock errors on Windows (e.g., `data/dataset.csv`)
+
+- use `data/runtime_dataset.csv` and `DATASET_PATH` instead of overwriting locked files
+
+### CodeT5 trainer argument mismatch
+
+- repo uses `eval_strategy` for transformers compatibility in this environment
+
+### `accelerate` missing
+
+```bash
+pip install accelerate
+```
+
+### Kaggle pull issues
+
+- verify Kaggle auth:
+
+```bash
+python -c "import kaggle; kaggle.api.authenticate(); print('ok')"
+```
+
+---
+
+## 14) Current Project Positioning
+
+This is a teaching-oriented DS mentor system:
+
+- strong stage-wise guidance
+- grounded retrieval
+- safety checks for common learner mistakes
+- optional neural code generation
+
+Best use case:
+
+- beginner to intermediate learners who need structured workflow support, not just raw answers.
+
+---
+
+## 15) Suggested Next Steps
+
+- run full CodeT5 training (more epochs, larger train subset)
+- add larger held-out benchmark suite for retrieval/generation
+- add runtime telemetry for generation mode (`template` vs `codet5`)
+- add citations for retrieved snippets in final response
+

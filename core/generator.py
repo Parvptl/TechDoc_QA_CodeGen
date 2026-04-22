@@ -10,6 +10,7 @@ class Generator:
 
     def __init__(self, config=None):
         self.config = config or {"provider": "template"}
+        self.use_codet5 = bool(self.config.get("use_codet5", False))
 
     def generate(
         self,
@@ -24,6 +25,7 @@ class Generator:
         planner_constraints: list = None,
         misconception_corrections: list = None,
         retry_feedback: str = "",
+        stage_name: str = "",
     ) -> dict:
         """Build a structured mentor response from retrieved context.
 
@@ -39,6 +41,19 @@ class Generator:
                 context_text = best_doc.get("answer", context_text)
             else:
                 context_text = str(best_doc)
+
+        # Optional neural code generation path (CodeT5).
+        # If model is unavailable or output is invalid, keep retrieved code.
+        if self.use_codet5:
+            try:
+                from models.finetune_codet5 import generate_codet5
+
+                result = generate_codet5(query=query, stage_name=stage_name or "")
+                candidate = str(result.get("code", "") or "")
+                if candidate.strip() and bool(result.get("valid", False)):
+                    extracted_code = candidate
+            except Exception:
+                pass
 
         skill = _skill_float(difficulty)
         answer_text = self._calibrate_depth(context_text, skill)

@@ -126,7 +126,7 @@ def finetune_codet5(
         num_train_epochs=epochs,
         per_device_train_batch_size=batch_size,
         per_device_eval_batch_size=batch_size,
-        evaluation_strategy="epoch",
+        eval_strategy="epoch",
         save_strategy="epoch",
         load_best_model_at_end=True,
         predict_with_generate=True,
@@ -197,7 +197,7 @@ def generate_codet5(query: str, stage_name: str = "",  # noqa
     """
     global _codet5_model, _codet5_tokenizer
 
-    # ── Try fine-tuned CodeT5 ─────────────────────────────────────────
+    # ── Try deployed/fine-tuned model directory first ─────────────────
     if Path(MODEL_DIR).exists():
         try:
             import torch
@@ -236,6 +236,42 @@ def generate_codet5(query: str, stage_name: str = "",  # noqa
 
         except Exception as e:
             print(f"[WARN] CodeT5 inference failed ({e}), using template fallback")
+
+    # ── Fallback to base CodeT5 if no local model directory is present ─
+    try:
+        import torch
+        from transformers import RobertaTokenizer, T5ForConditionalGeneration
+
+        if _codet5_model is None:
+            _codet5_tokenizer = RobertaTokenizer.from_pretrained(BASE_MODEL)
+            _codet5_model = T5ForConditionalGeneration.from_pretrained(BASE_MODEL)
+            _codet5_model.eval()
+
+        input_text = f"generate python: stage={stage_name} question={query}"
+        inputs = _codet5_tokenizer(
+            input_text, return_tensors="pt",
+            max_length=256, truncation=True
+        )
+        with torch.no_grad():
+            outputs = _codet5_model.generate(
+                **inputs,
+                max_new_tokens=max_new_tokens,
+                num_beams=4,
+                early_stopping=True,
+                no_repeat_ngram_size=3,
+            )
+        code = _codet5_tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+        import ast
+        try:
+            ast.parse(code)
+            valid = True
+        except SyntaxError:
+            valid = False
+
+        return {"code": code, "method": "codet5_base", "valid": valid}
+    except Exception:
+        pass
 
     # ── Fallback: template-based generator ───────────────────────────
     from modules.code_generator import generate_code, validate_code_syntax
