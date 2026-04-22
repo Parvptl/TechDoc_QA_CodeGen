@@ -95,11 +95,23 @@ class DSRetriever:
         with open(path, newline="", encoding="utf-8") as f:
             rows = list(csv.DictReader(f))
 
+        # Backward/forward compatibility:
+        # Some datasets use `stage` (DS Mentor Pro generator), others use `pipeline_stage` (older pipeline).
+        for row in rows:
+            if "pipeline_stage" not in row or row.get("pipeline_stage") in (None, "", "0"):
+                if "stage" in row and row.get("stage") not in (None, ""):
+                    row["pipeline_stage"] = row.get("stage")
+
         # Add stage name for richer indexing
         STAGE_NAMES = {1:"Problem Understanding",2:"Data Loading",3:"Exploratory Data Analysis",
                        4:"Preprocessing",5:"Feature Engineering",6:"Modeling",7:"Evaluation"}
         for row in rows:
-            row["stage_name"] = STAGE_NAMES.get(int(row.get("pipeline_stage", 1)), "")
+            try:
+                stage_num = int(row.get("pipeline_stage", 1))
+            except (TypeError, ValueError):
+                stage_num = 1
+            row["pipeline_stage"] = stage_num
+            row["stage_name"] = STAGE_NAMES.get(stage_num, "")
         self.documents = rows
 
         # Build corpus
@@ -251,14 +263,14 @@ class DSRetriever:
             # Find rank of first relevant result
             rr = 0.0
             for rank_idx, r in enumerate(results, 1):
-                if int(r["pipeline_stage"]) == relevant_stage:
+                if int(r.get("pipeline_stage", r.get("stage", 0))) == relevant_stage:
                     rr = 1.0 / rank_idx
                     break
             reciprocal_ranks.append(rr)
 
             # Recall@K: is there at least one correct result in top-K?
             for k in [1, 3, 5]:
-                top_k_stages = [int(r["pipeline_stage"]) for r in results[:k]]
+                top_k_stages = [int(r.get("pipeline_stage", r.get("stage", 0))) for r in results[:k]]
                 recall_at[k].append(1.0 if relevant_stage in top_k_stages else 0.0)
 
         return {

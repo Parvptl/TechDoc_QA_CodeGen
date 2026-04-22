@@ -250,8 +250,8 @@ def eval_stage_classifier(verbose: bool = True) -> dict:
         y_true.append(true_stage)
         y_pred.append(pred)
         if verbose:
-            sym = "✓" if pred == true_stage else "✗"
-            print(f"  {sym} [{true_stage}→{pred}] {query[:55]}")
+            sym = "v" if pred == true_stage else "x"
+            print(f"  {sym} [{true_stage}->{pred}] {query[:55]}")
 
     acc      = accuracy_score(y_true, y_pred)
     macro_f1 = f1_score(y_true, y_pred, average="macro", zero_division=0)
@@ -273,7 +273,7 @@ def eval_intent_classifier(verbose: bool = True) -> dict:
         ok   = pred == expected
         if ok: correct += 1
         if verbose:
-            print(f"  {'✓' if ok else '✗'} {pred:<15} | {query[:55]}")
+            print(f"  {'v' if ok else 'x'} {pred:<15} | {query[:55]}")
 
     acc = correct / len(INTENT_QUERIES)
     print(f"\n  Accuracy: {acc:.4f} ({correct}/{len(INTENT_QUERIES)})")
@@ -329,8 +329,8 @@ def eval_codebleu(verbose: bool = True) -> dict:
         syntax_scores.append(1.0 if valid else 0.0)
 
         if verbose:
-            sym = "✓" if valid else "✗"
-            kw  = "✓" if kw_ok else "○"
+            sym = "v" if valid else "x"
+            kw  = "v" if kw_ok else "o"
             print(f"  {sym}kw{kw} CodeBLEU={cb:.3f} | {query[:50]}")
 
     # Dataset-wide syntax check
@@ -369,7 +369,7 @@ def eval_visualization(verbose: bool = True) -> dict:
         if res["success"]:
             ok += 1
             times.append(res["execution_time_ms"])
-        sym = "✓" if res["success"] else "✗"
+        sym = "v" if res["success"] else "x"
         if verbose:
             ms  = f"{res['execution_time_ms']:.0f}ms" if res["success"] else res.get("error","?")[:40]
             print(f"  {sym} ({ms}) {q}")
@@ -393,7 +393,7 @@ def eval_skip_detection(verbose: bool = True) -> dict:
         ok  = res["is_skip"] == exp_skip
         if ok: correct += 1
         if verbose:
-            print(f"  {'✓' if ok else '✗'} done={scenario['completed']} → "
+            print(f"  {'v' if ok else 'x'} done={scenario['completed']} -> "
                   f"S{exp_stage} skip={res['is_skip']} (exp={exp_skip})")
     acc = correct / len(SKIP_SCENARIOS)
     print(f"\n  Accuracy: {acc:.4f} ({correct}/{len(SKIP_SCENARIOS)})")
@@ -430,8 +430,8 @@ def eval_conversation(verbose: bool = True) -> dict:
             if has_resolution: correct_res += 1
 
         if verbose:
-            sym = "✓" if (not expected_fu or is_fu) else "✗"
-            ctx = result["injected_context"][:50] if result.get("injected_context") else "—"
+            sym = "v" if (not expected_fu or is_fu) else "x"
+            ctx = result["injected_context"][:50] if result.get("injected_context") else "-"
             print(f"  {sym} [fu={is_fu}] {query[:50]}")
             if result.get("injected_context"):
                 print(f"       resolved: {ctx}")
@@ -470,9 +470,9 @@ def build_comparison_table(our_results: dict) -> str:
     ]
 
     for key, label, is_pct, direction in metrics:
-        codet5  = BASELINES["Base CodeT5"].get(key, "—")
-        chatgpt = BASELINES["ChatGPT-3.5"].get(key, "—")
-        ours    = our_results.get(key, "—")
+        codet5  = BASELINES["Base CodeT5"].get(key, "-")
+        chatgpt = BASELINES["ChatGPT-3.5"].get(key, "-")
+        ours    = our_results.get(key, "-")
 
         def fmt(v):
             if isinstance(v, float):
@@ -488,7 +488,7 @@ def build_comparison_table(our_results: dict) -> str:
                 delta = (chatgpt - ours) / chatgpt * 100
                 delta_str = f"+{delta:.1f}% faster" if delta >= 0 else f"{delta:.1f}%"
         else:
-            delta_str = "—"
+            delta_str = "-"
 
         lines.append(
             f"| {label} | {fmt(codet5)} | {fmt(chatgpt)} | **{fmt(ours)}** | {delta_str} |"
@@ -513,9 +513,10 @@ def build_comparison_table(our_results: dict) -> str:
 
 # ── Full evaluation runner ─────────────────────────────────────────────────────
 def run_full_evaluation(verbose: bool = True) -> dict:
-    print("\n" + "█"*60)
+    # NOTE: Use ASCII separators for Windows terminals with cp1252 encoding.
+    print("\n" + "#" * 60)
     print("  DS MENTOR QA SYSTEM — FULL EVALUATION BENCHMARK")
-    print("█"*60)
+    print("#" * 60)
 
     results = {}
     results.update(eval_stage_classifier(verbose))
@@ -546,9 +547,9 @@ def run_full_evaluation(verbose: bool = True) -> dict:
     }
 
     for key, label in metric_labels.items():
-        val = results.get(key, "—")
+        val = results.get(key, "-")
         if isinstance(val, float):
-            bar = "█" * int(val * 20) if val <= 1 else ""
+            bar = "#" * int(val * 20) if val <= 1 else ""
             print(f"  {label:<40}: {val:.4f}  {bar}")
         else:
             print(f"  {label:<40}: {val}")
@@ -564,9 +565,9 @@ def run_full_evaluation(verbose: bool = True) -> dict:
         for key, label in metric_labels.items():
             writer.writerow({
                 "metric":      label,
-                "our_system":  results.get(key, "—"),
-                "base_codet5": BASELINES["Base CodeT5"].get(key, "—"),
-                "chatgpt":     BASELINES["ChatGPT-3.5"].get(key, "—"),
+                    "our_system":  results.get(key, "-"),
+                    "base_codet5": BASELINES["Base CodeT5"].get(key, "-"),
+                    "chatgpt":     BASELINES["ChatGPT-3.5"].get(key, "-"),
             })
 
     # Markdown report

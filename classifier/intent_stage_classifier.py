@@ -152,6 +152,7 @@ def train_intent_classifier(save_path: str = INTENT_MODEL_PATH):
     from sklearn.calibration import CalibratedClassifierCV
     from sklearn.pipeline import Pipeline
     from sklearn.model_selection import cross_val_score
+    from collections import Counter
     import numpy as np
 
     texts, labels = [], []
@@ -160,18 +161,47 @@ def train_intent_classifier(save_path: str = INTENT_MODEL_PATH):
             texts.append(ex)
             labels.append(intent)
 
+    # CalibratedClassifierCV needs enough samples per class per fold.
+    # Keep CV conservative so training works on small toy datasets too.
+    label_counts = Counter(labels)
+    min_per_class = min(label_counts.values()) if label_counts else 0
+    # Be conservative: calibration with cv=2 is much less brittle on small datasets
+    # and still yields usable confidence estimates.
+    calib_cv = 2 if min_per_class >= 4 else 1
+
+    if calib_cv == 1:
+        # Fallback: no calibration if dataset is too small.
+        final_est = LinearSVC(max_iter=2000, C=1.0)
+    else:
+        final_est = CalibratedClassifierCV(LinearSVC(max_iter=2000, C=1.0), cv=calib_cv)
+
     clf = Pipeline([
         ("tfidf", TfidfVectorizer(ngram_range=(1, 3), max_features=5000, sublinear_tf=True)),
-        ("svm",   CalibratedClassifierCV(LinearSVC(max_iter=2000, C=1.0), cv=3)),
+        ("svm",   final_est),
     ])
-    scores = cross_val_score(clf, texts, labels, cv=5, scoring="accuracy")
-    print(f"[INFO] Intent classifier CV accuracy: {scores.mean():.4f} ± {scores.std():.4f}")
+    outer_cv = 5 if min_per_class >= 10 else (3 if min_per_class >= 6 else 2)
+    try:
+        scores = cross_val_score(clf, texts, labels, cv=outer_cv, scoring="accuracy")
+        print(f"[INFO] Intent classifier CV accuracy: {scores.mean():.4f} ± {scores.std():.4f}")
+    except Exception as e:
+        print(f"[WARN] Intent classifier CV skipped: {e}")
 
-    clf.fit(texts, labels)
+    try:
+        clf.fit(texts, labels)
+    except ValueError as e:
+        # If calibration still fails (rare sklearn edge cases), fall back to raw LinearSVC.
+        print(f"[WARN] Intent classifier calibration failed; falling back to LinearSVC. Error: {e}")
+        clf = Pipeline(
+            [
+                ("tfidf", TfidfVectorizer(ngram_range=(1, 3), max_features=5000, sublinear_tf=True)),
+                ("svm", LinearSVC(max_iter=2000, C=1.0)),
+            ]
+        )
+        clf.fit(texts, labels)
     Path(save_path).parent.mkdir(parents=True, exist_ok=True)
     with open(save_path, "wb") as f:
         pickle.dump(clf, f)
-    print(f"[INFO] Intent classifier saved → {save_path}")
+    print(f"[INFO] Intent classifier saved -> {save_path}")
     return clf
 
 
@@ -265,9 +295,31 @@ def predict_intent_with_confidence(query: str) -> tuple[str, float]:
     clf = _load_intent()
     if clf is None:
         return "code", 0.5
-    probs  = clf.predict_proba([query])[0]
-    intent = str(clf.classes_[probs.argmax()])
-    return intent, float(probs.max())
+    # Calibrated models expose predict_proba; raw LinearSVC does not.
+    if hasattr(clf, "predict_proba"):
+        probs = clf.predict_proba([query])[0]
+        intent = str(clf.classes_[probs.argmax()])
+        return intent, float(probs.max())
+
+    intent = str(clf.predict([query])[0])
+    conf = 0.6
+    if hasattr(clf, "decision_function"):
+        try:
+            scores = clf.decision_function([query])
+            # decision_function may be shape (n_classes,) or (1, n_classes)
+            if hasattr(scores, "__len__") and len(getattr(scores, "shape", [])) == 2:
+                scores = scores[0]
+            import numpy as np
+
+            scores = np.array(scores, dtype=float).ravel()
+            # Confidence proxy: normalized margin between best and second best.
+            if scores.size >= 2:
+                top2 = np.sort(scores)[-2:]
+                margin = float(top2[1] - top2[0])
+                conf = float(max(0.5, min(0.95, 0.5 + margin / 5.0)))
+        except Exception:
+            conf = 0.6
+    return intent, float(conf)
 
 
 def predict_both(query: str) -> dict:

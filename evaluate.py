@@ -143,7 +143,8 @@ def evaluate_conversation():
     return {"conv_followup_accuracy":round(fu_acc,4),"conv_resolution_accuracy":round(res_acc,4)}
 
 def run_full_evaluation():
-    print("\n"+"#"*60+"\n  DS MENTOR QA — COMPLETE EVALUATION\n"+"#"*60)
+    # NOTE: Use ASCII separators for Windows terminals with cp1252 encoding.
+    print("\n" + "#" * 60 + "\n  DS MENTOR QA — COMPLETE EVALUATION\n" + "#" * 60)
     results={}
     results.update(evaluate_stage_classifier())
     results.update(evaluate_retrieval())
@@ -170,7 +171,7 @@ def run_full_evaluation():
     print("\n"+"="*60+"\nFINAL METRICS SUMMARY\n"+"="*60)
     for k,label in LABELS.items():
         v=results.get(k,"N/A")
-        bar="█"*int(v*20) if isinstance(v,float) and v<=1.0 else ""
+        bar="#"*int(v*20) if isinstance(v,float) and v<=1.0 else ""
         fmt=f"{v:.4f}" if isinstance(v,float) and v<=1.0 else str(v)
         print(f"  {label:<44}: {fmt}  {bar}")
     Path("outputs").mkdir(exist_ok=True)
@@ -211,8 +212,8 @@ def evaluate_code_generator():
         r = generate_code(query, stage)
         v = validate_code_syntax(r["code"])
         ctx_used = any(v for v in r.get("context",{}).values() if v)
-        status = "✓" if v["valid"] else "✗"
-        method_mark = "📌" if ctx_used else "📄"
+        status = "v" if v["valid"] else "x"
+        method_mark = "ctx" if ctx_used else "txt"
         print(f"  {status} {method_mark} [S{stage}] {query[:50]:<50} | {r['method']}")
         results.append({"valid": v["valid"], "ctx_used": ctx_used, "method": r["method"]})
     valid_rate = sum(1 for r in results if r["valid"]) / len(results)
@@ -275,7 +276,7 @@ def evaluate_conversation():
             resolve_ok = scenario["expect_in_resolved"] in result["enriched_query"]
         ok = followup_ok and resolve_ok
         if ok: correct += 1
-        status = "✓" if ok else "✗"
+        status = "v" if ok else "x"
         print(f"  {status} Scenario {i+1}: {scenario['followup'][:55]}")
         if not followup_ok:
             print(f"       Expected is_followup={scenario['expect_followup']}, got {result['is_followup']}")
@@ -289,9 +290,9 @@ def evaluate_conversation():
 
 def run_full_evaluation_v2():
     """Run complete evaluation including new modules."""
-    print("\n" + "█"*60)
+    print("\n" + "#" * 60)
     print("  DS MENTOR QA SYSTEM — COMPLETE EVALUATION REPORT v2")
-    print("█"*60)
+    print("#" * 60)
 
     results = {}
     results.update(evaluate_stage_classifier())
@@ -322,7 +323,7 @@ def run_full_evaluation_v2():
     for key, label in labels.items():
         val = results.get(key, "N/A")
         if isinstance(val, float):
-            bar = "█" * int(val * 20)
+            bar = "#" * int(val * 20)
             print(f"  {label:<42}: {val:.4f}  {bar}")
 
     Path("outputs").mkdir(exist_ok=True)
@@ -331,7 +332,7 @@ def run_full_evaluation_v2():
         writer.writeheader()
         for k,v in results.items():
             writer.writerow({"metric": labels.get(k,k), "value": v})
-    print(f"\n[INFO] Results saved → outputs/eval_results.csv")
+    print(f"\n[INFO] Results saved -> outputs/eval_results.csv")
     return results
 
 
