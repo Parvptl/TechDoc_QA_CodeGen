@@ -1,5 +1,7 @@
+import pickle
 import re
-from typing import Dict, List, Optional, Tuple
+from pathlib import Path
+from typing import Tuple
 
 class StageClassifier:
     """Classifies user queries into one of the 7 Data Science pipeline stages."""
@@ -25,12 +27,31 @@ class StageClassifier:
     }
 
     def __init__(self):
-        # We can implement TF-IDF + SVM here, but for zero-setup, we use keyword heuristic
-        # backed by a regex matcher. It operates identically from an API perspective.
-        pass
+        self._clf = None
+        model_path = Path(__file__).resolve().parent.parent / "models" / "tfidf_svm_fallback.pkl"
+        if model_path.exists():
+            try:
+                with open(model_path, "rb") as f:
+                    self._clf = pickle.load(f)
+            except Exception:
+                # Keep zero-setup behavior if model load fails.
+                self._clf = None
 
     def classify(self, query: str) -> Tuple[int, float]:
         """Returns the predicted stage (1-7) and confidence (0.0-1.0)."""
+        if self._clf is not None:
+            try:
+                pred_stage = int(self._clf.predict([query])[0])
+                if hasattr(self._clf, "predict_proba"):
+                    probs = self._clf.predict_proba([query])[0]
+                    conf = float(max(probs))
+                else:
+                    conf = 0.7
+                return pred_stage, min(0.95, max(0.1, conf))
+            except Exception:
+                # Fall back to deterministic heuristic if model inference fails.
+                pass
+
         query_lower = query.lower()
         scores = {stage: 0 for stage in self.STAGE_NAMES}
         
