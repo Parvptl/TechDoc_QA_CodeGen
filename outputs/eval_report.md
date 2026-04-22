@@ -8,11 +8,11 @@
 | Retrieval Recall@1 | 0.4615 |
 | Retrieval Recall@3 | 0.6538 |
 | Retrieval Recall@5 | 0.8462 |
-| Retrieval Latency (ms) | 2.4900 |
+| Retrieval Latency (ms) | 2.7500 |
 | Code Syntax Success Rate | 1.0000 |
 | Code Context Accuracy | 1.0000 |
 | Visualization Success Rate | 1.0000 |
-| Visualization Latency (s) | 0.8200 |
+| Visualization Latency (s) | 0.8600 |
 | Skip Detection Accuracy | 1.0000 |
 | Conv Follow-up Detection | 0.8000 |
 | Conv Reference Resolution | 0.8000 |

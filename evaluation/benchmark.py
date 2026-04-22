@@ -241,7 +241,12 @@ def eval_stage_classifier(verbose: bool = True) -> dict:
     print("1. STAGE CLASSIFIER")
     print("="*60)
     from classifier.intent_stage_classifier import predict_both
-    from sklearn.metrics import accuracy_score, f1_score, classification_report
+    from sklearn.metrics import (
+        accuracy_score,
+        balanced_accuracy_score,
+        classification_report,
+        f1_score,
+    )
 
     y_true, y_pred = [], []
     for query, true_stage in TEST_QUERIES:
@@ -250,15 +255,25 @@ def eval_stage_classifier(verbose: bool = True) -> dict:
         y_true.append(true_stage)
         y_pred.append(pred)
         if verbose:
-            sym = "v" if pred == true_stage else "x"
-            print(f"  {sym} [{true_stage}->{pred}] {query[:55]}")
+            sym = "✓" if pred == true_stage else "✗"
+            print(f"  {sym} [{true_stage}→{pred}] {query[:55]}")
 
-    acc      = accuracy_score(y_true, y_pred)
+    acc = accuracy_score(y_true, y_pred)
     macro_f1 = f1_score(y_true, y_pred, average="macro", zero_division=0)
-    print(f"\n  Accuracy: {acc:.4f}  Macro-F1: {macro_f1:.4f}")
+    weighted_f1 = f1_score(y_true, y_pred, average="weighted", zero_division=0)
+    bal_acc = balanced_accuracy_score(y_true, y_pred)
+    print(
+        f"\n  Accuracy: {acc:.4f}  Macro-F1: {macro_f1:.4f}  "
+        f"Weighted-F1: {weighted_f1:.4f}  Balanced-Acc: {bal_acc:.4f}"
+    )
     if verbose:
         print(classification_report(y_true, y_pred, zero_division=0))
-    return {"stage_accuracy": round(acc, 4), "stage_macro_f1": round(macro_f1, 4)}
+    return {
+        "stage_accuracy": round(acc, 4),
+        "stage_macro_f1": round(macro_f1, 4),
+        "stage_weighted_f1": round(weighted_f1, 4),
+        "stage_balanced_acc": round(bal_acc, 4),
+    }
 
 
 def eval_intent_classifier(verbose: bool = True) -> dict:
@@ -266,18 +281,35 @@ def eval_intent_classifier(verbose: bool = True) -> dict:
     print("2. INTENT CLASSIFIER")
     print("="*60)
     from classifier.intent_stage_classifier import predict_intent
+    from sklearn.metrics import f1_score, precision_score, recall_score
 
     correct = 0
+    y_true = []
+    y_pred = []
     for query, expected in INTENT_QUERIES:
         pred = predict_intent(query)
         ok   = pred == expected
         if ok: correct += 1
+        y_true.append(expected)
+        y_pred.append(pred)
         if verbose:
-            print(f"  {'v' if ok else 'x'} {pred:<15} | {query[:55]}")
+            print(f"  {'✓' if ok else '✗'} {pred:<15} | {query[:55]}")
 
     acc = correct / len(INTENT_QUERIES)
-    print(f"\n  Accuracy: {acc:.4f} ({correct}/{len(INTENT_QUERIES)})")
-    return {"intent_accuracy": round(acc, 4)}
+    macro_f1 = f1_score(y_true, y_pred, average="macro", zero_division=0)
+    macro_precision = precision_score(y_true, y_pred, average="macro", zero_division=0)
+    macro_recall = recall_score(y_true, y_pred, average="macro", zero_division=0)
+    print(
+        f"\n  Accuracy: {acc:.4f} ({correct}/{len(INTENT_QUERIES)})"
+        f"  Macro-F1: {macro_f1:.4f}  Macro-P: {macro_precision:.4f}"
+        f"  Macro-R: {macro_recall:.4f}"
+    )
+    return {
+        "intent_accuracy": round(acc, 4),
+        "intent_macro_f1": round(macro_f1, 4),
+        "intent_macro_precision": round(macro_precision, 4),
+        "intent_macro_recall": round(macro_recall, 4),
+    }
 
 
 def eval_retrieval(verbose: bool = True) -> dict:
@@ -294,13 +326,41 @@ def eval_retrieval(verbose: bool = True) -> dict:
 
     test_set = [{"query": q, "relevant_stage": s} for q, s in TEST_QUERIES]
     m = ret.evaluate_retrieval(test_set)
+    top1_scores = []
+    top12_margin = []
+    stage_match_top1 = []
+    for q, s in TEST_QUERIES:
+        ranked = ret.retrieve_context(q, top_k=2)
+        if ranked:
+            top1_scores.append(float(ranked[0].get("retrieval_score", 0.0)))
+            stage_match_top1.append(1.0 if int(ranked[0].get("pipeline_stage", 0)) == int(s) else 0.0)
+        if len(ranked) >= 2:
+            margin = float(ranked[0].get("retrieval_score", 0.0)) - float(ranked[1].get("retrieval_score", 0.0))
+            top12_margin.append(margin)
+        elif ranked:
+            top12_margin.append(float(ranked[0].get("retrieval_score", 0.0)))
+
+    avg_top1_score = float(np.mean(top1_scores)) if top1_scores else 0.0
+    avg_top12_margin = float(np.mean(top12_margin)) if top12_margin else 0.0
+    top1_stage_acc = float(np.mean(stage_match_top1)) if stage_match_top1 else 0.0
+
     print(f"  MRR={m['mrr']:.4f}  R@1={m['recall_at_1']:.4f}  "
           f"R@3={m['recall_at_3']:.4f}  R@5={m['recall_at_5']:.4f}  "
           f"Latency={m['avg_latency_ms']:.1f}ms")
+    print(
+        f"  Top1 stage hit={top1_stage_acc:.4f}  "
+        f"Avg top1 score={avg_top1_score:.4f}  "
+        f"Avg top1-top2 margin={avg_top12_margin:.4f}"
+    )
     return {
-        "retrieval_mrr":        m["mrr"],
-        "recall_at_5":          m["recall_at_5"],
+        "retrieval_mrr": m["mrr"],
+        "recall_at_1": m["recall_at_1"],
+        "recall_at_3": m["recall_at_3"],
+        "recall_at_5": m["recall_at_5"],
         "retrieval_latency_ms": m["avg_latency_ms"],
+        "retrieval_top1_stage_acc": round(top1_stage_acc, 4),
+        "retrieval_avg_top1_score": round(avg_top1_score, 4),
+        "retrieval_avg_top12_margin": round(avg_top12_margin, 4),
     }
 
 
@@ -313,6 +373,8 @@ def eval_codebleu(verbose: bool = True) -> dict:
 
     ret = HybridRetriever("data/dataset.csv")
     bleu_scores, syntax_scores = [], []
+    keyword_hits = []
+    generated_lines = []
 
     for query, stage, expected_keyword in CODE_QUERIES:
         results    = ret.retrieve_context(query, top_k=3, predicted_stage=stage)
@@ -327,10 +389,12 @@ def eval_codebleu(verbose: bool = True) -> dict:
 
         bleu_scores.append(cb)
         syntax_scores.append(1.0 if valid else 0.0)
+        keyword_hits.append(1.0 if kw_ok else 0.0)
+        generated_lines.append(float(len([ln for ln in gen_code.splitlines() if ln.strip()])))
 
         if verbose:
-            sym = "v" if valid else "x"
-            kw  = "v" if kw_ok else "o"
+            sym = "✓" if valid else "✗"
+            kw  = "✓" if kw_ok else "○"
             print(f"  {sym}kw{kw} CodeBLEU={cb:.3f} | {query[:50]}")
 
     # Dataset-wide syntax check
@@ -349,11 +413,22 @@ def eval_codebleu(verbose: bool = True) -> dict:
 
     avg_bleu = float(np.mean(bleu_scores))
     avg_syn  = float(np.mean(syntax_scores))
+    kw_rate = float(np.mean(keyword_hits)) if keyword_hits else 0.0
+    codebleu_std = float(np.std(bleu_scores)) if bleu_scores else 0.0
+    avg_lines = float(np.mean(generated_lines)) if generated_lines else 0.0
     print(f"\n  Avg CodeBLEU={avg_bleu:.4f}  Syntax={avg_syn:.4f}  "
           f"Dataset syntax={dataset_syntax:.4f} ({dataset_valid}/{total_rows})")
+    print(
+        f"  Keyword hit rate={kw_rate:.4f}  CodeBLEU std={codebleu_std:.4f}  "
+        f"Avg generated LOC={avg_lines:.2f}"
+    )
     return {
-        "codebleu":          round(avg_bleu, 4),
-        "code_syntax_rate":  round(dataset_syntax, 4),
+        "codebleu": round(avg_bleu, 4),
+        "codebleu_std": round(codebleu_std, 4),
+        "code_syntax_rate": round(dataset_syntax, 4),
+        "generated_code_syntax_rate": round(avg_syn, 4),
+        "code_keyword_hit_rate": round(kw_rate, 4),
+        "code_avg_generated_loc": round(avg_lines, 2),
     }
 
 
@@ -369,14 +444,24 @@ def eval_visualization(verbose: bool = True) -> dict:
         if res["success"]:
             ok += 1
             times.append(res["execution_time_ms"])
-        sym = "v" if res["success"] else "x"
+        sym = "✓" if res["success"] else "✗"
         if verbose:
             ms  = f"{res['execution_time_ms']:.0f}ms" if res["success"] else res.get("error","?")[:40]
             print(f"  {sym} ({ms}) {q}")
     rate = ok / total if total else 0
-    avg  = float(np.mean(times)) if times else 0
-    print(f"\n  Success: {ok}/{total} ({rate*100:.1f}%)  Avg latency: {avg:.0f}ms")
-    return {"viz_success_rate": round(rate, 4)}
+    avg = float(np.mean(times)) if times else 0
+    p95 = float(np.percentile(times, 95)) if times else 0
+    err_rate = 1.0 - rate if total else 0.0
+    print(
+        f"\n  Success: {ok}/{total} ({rate*100:.1f}%)  "
+        f"Avg latency: {avg:.0f}ms  P95 latency: {p95:.0f}ms"
+    )
+    return {
+        "viz_success_rate": round(rate, 4),
+        "viz_avg_latency_ms": round(avg, 2),
+        "viz_p95_latency_ms": round(p95, 2),
+        "viz_error_rate": round(err_rate, 4),
+    }
 
 
 def eval_skip_detection(verbose: bool = True) -> dict:
@@ -393,7 +478,7 @@ def eval_skip_detection(verbose: bool = True) -> dict:
         ok  = res["is_skip"] == exp_skip
         if ok: correct += 1
         if verbose:
-            print(f"  {'v' if ok else 'x'} done={scenario['completed']} -> "
+            print(f"  {'✓' if ok else '✗'} done={scenario['completed']} → "
                   f"S{exp_stage} skip={res['is_skip']} (exp={exp_skip})")
     acc = correct / len(SKIP_SCENARIOS)
     print(f"\n  Accuracy: {acc:.4f} ({correct}/{len(SKIP_SCENARIOS)})")
@@ -417,7 +502,7 @@ def eval_conversation(verbose: bool = True) -> dict:
         ("How do I evaluate the model?",           7, "Evaluation",        True),
     ]
 
-    correct_fu, correct_res = 0, 0
+    correct_fu, correct_res, joint_ok = 0, 0, 0
     total_fu = sum(1 for _, _, _, is_fu in session_data if is_fu)
 
     for query, stage_num, stage_name, expected_fu in session_data:
@@ -428,19 +513,30 @@ def eval_conversation(verbose: bool = True) -> dict:
         if expected_fu:
             if is_fu: correct_fu += 1
             if has_resolution: correct_res += 1
+            if is_fu and has_resolution:
+                joint_ok += 1
 
         if verbose:
-            sym = "v" if (not expected_fu or is_fu) else "x"
-            ctx = result["injected_context"][:50] if result.get("injected_context") else "-"
+            sym = "✓" if (not expected_fu or is_fu) else "✗"
+            ctx = result["injected_context"][:50] if result.get("injected_context") else "—"
             print(f"  {sym} [fu={is_fu}] {query[:50]}")
             if result.get("injected_context"):
                 print(f"       resolved: {ctx}")
 
         mgr.record_turn(query, stage_num, stage_name, "answer", "code")
 
-    acc = correct_fu / total_fu if total_fu else 0
-    print(f"\n  Follow-up detection: {correct_fu}/{total_fu} ({acc*100:.1f}%)")
-    return {"conv_accuracy": round(acc, 4)}
+    fu_acc = correct_fu / total_fu if total_fu else 0
+    res_acc = correct_res / total_fu if total_fu else 0
+    joint_acc = joint_ok / total_fu if total_fu else 0
+    print(
+        f"\n  Follow-up detection: {correct_fu}/{total_fu} ({fu_acc*100:.1f}%)"
+        f"  Resolution: {correct_res}/{total_fu} ({res_acc*100:.1f}%)"
+    )
+    return {
+        "conv_accuracy": round(fu_acc, 4),
+        "conv_resolution_accuracy": round(res_acc, 4),
+        "conv_joint_accuracy": round(joint_acc, 4),
+    }
 
 
 # ── Comparison table builder ───────────────────────────────────────────────────
@@ -449,14 +545,33 @@ def build_comparison_table(our_results: dict) -> str:
     metrics = [
         ("stage_accuracy",         "Stage Clf Accuracy",      True,  "higher"),
         ("stage_macro_f1",         "Stage Clf Macro-F1",      True,  "higher"),
+        ("stage_weighted_f1",      "Stage Clf Weighted-F1",   True,  "higher"),
+        ("stage_balanced_acc",     "Stage Clf Balanced Acc",  True,  "higher"),
+        ("intent_macro_f1",        "Intent Macro-F1",         True,  "higher"),
+        ("intent_macro_precision", "Intent Macro-Precision",  True,  "higher"),
+        ("intent_macro_recall",    "Intent Macro-Recall",     True,  "higher"),
         ("retrieval_mrr",          "Retrieval MRR",           True,  "higher"),
+        ("recall_at_1",            "Retrieval Recall@1",      True,  "higher"),
+        ("recall_at_3",            "Retrieval Recall@3",      True,  "higher"),
         ("recall_at_5",            "Retrieval Recall@5",      True,  "higher"),
         ("retrieval_latency_ms",   "Retrieval Latency (ms)",  False, "lower"),
+        ("retrieval_top1_stage_acc", "Retrieval Top1 Stage Acc", True, "higher"),
+        ("retrieval_avg_top1_score", "Retrieval Avg Top1 Score", False, "lower"),
+        ("retrieval_avg_top12_margin", "Retrieval Avg Top1-Top2 Margin", False, "lower"),
         ("codebleu",               "CodeBLEU Score",          True,  "higher"),
+        ("codebleu_std",           "CodeBLEU StdDev",         False, "lower"),
         ("code_syntax_rate",       "Code Syntax Rate",        True,  "higher"),
+        ("generated_code_syntax_rate", "Generated Code Syntax Rate", True, "higher"),
+        ("code_keyword_hit_rate",  "Code Keyword Hit Rate",   True,  "higher"),
+        ("code_avg_generated_loc", "Avg Generated LOC",       False, "lower"),
         ("viz_success_rate",       "Visualization Rate",      True,  "higher"),
+        ("viz_avg_latency_ms",     "Visualization Avg Latency (ms)", False, "lower"),
+        ("viz_p95_latency_ms",     "Visualization P95 Latency (ms)", False, "lower"),
+        ("viz_error_rate",         "Visualization Error Rate", False, "lower"),
         ("skip_detection_acc",     "Skip Detection Acc",      True,  "higher"),
         ("conv_accuracy",          "Conv Accuracy",           True,  "higher"),
+        ("conv_resolution_accuracy", "Conv Resolution Accuracy", True, "higher"),
+        ("conv_joint_accuracy",    "Conv Joint Accuracy",     True,  "higher"),
         ("intent_accuracy",        "Intent Accuracy",         True,  "higher"),
     ]
 
@@ -470,9 +585,9 @@ def build_comparison_table(our_results: dict) -> str:
     ]
 
     for key, label, is_pct, direction in metrics:
-        codet5  = BASELINES["Base CodeT5"].get(key, "-")
-        chatgpt = BASELINES["ChatGPT-3.5"].get(key, "-")
-        ours    = our_results.get(key, "-")
+        codet5  = BASELINES["Base CodeT5"].get(key, "—")
+        chatgpt = BASELINES["ChatGPT-3.5"].get(key, "—")
+        ours    = our_results.get(key, "—")
 
         def fmt(v):
             if isinstance(v, float):
@@ -488,7 +603,7 @@ def build_comparison_table(our_results: dict) -> str:
                 delta = (chatgpt - ours) / chatgpt * 100
                 delta_str = f"+{delta:.1f}% faster" if delta >= 0 else f"{delta:.1f}%"
         else:
-            delta_str = "-"
+            delta_str = "—"
 
         lines.append(
             f"| {label} | {fmt(codet5)} | {fmt(chatgpt)} | **{fmt(ours)}** | {delta_str} |"
@@ -513,10 +628,9 @@ def build_comparison_table(our_results: dict) -> str:
 
 # ── Full evaluation runner ─────────────────────────────────────────────────────
 def run_full_evaluation(verbose: bool = True) -> dict:
-    # NOTE: Use ASCII separators for Windows terminals with cp1252 encoding.
-    print("\n" + "#" * 60)
+    print("\n" + "█"*60)
     print("  DS MENTOR QA SYSTEM — FULL EVALUATION BENCHMARK")
-    print("#" * 60)
+    print("█"*60)
 
     results = {}
     results.update(eval_stage_classifier(verbose))
@@ -535,21 +649,40 @@ def run_full_evaluation(verbose: bool = True) -> dict:
     metric_labels = {
         "stage_accuracy":       "Stage Classifier Accuracy",
         "stage_macro_f1":       "Stage Classifier Macro-F1",
+        "stage_weighted_f1":    "Stage Classifier Weighted-F1",
+        "stage_balanced_acc":   "Stage Classifier Balanced Accuracy",
         "intent_accuracy":      "Intent Classifier Accuracy",
+        "intent_macro_f1":      "Intent Classifier Macro-F1",
+        "intent_macro_precision":"Intent Classifier Macro-Precision",
+        "intent_macro_recall":  "Intent Classifier Macro-Recall",
         "retrieval_mrr":        "Retrieval MRR",
+        "recall_at_1":          "Retrieval Recall@1",
+        "recall_at_3":          "Retrieval Recall@3",
         "recall_at_5":          "Retrieval Recall@5",
+        "retrieval_top1_stage_acc": "Retrieval Top1 Stage Accuracy",
         "retrieval_latency_ms": "Retrieval Latency (ms/query)",
+        "retrieval_avg_top1_score": "Retrieval Avg Top1 Score",
+        "retrieval_avg_top12_margin": "Retrieval Avg Top1-Top2 Margin",
         "codebleu":             "CodeBLEU Score",
+        "codebleu_std":         "CodeBLEU StdDev",
         "code_syntax_rate":     "Code Syntax Success Rate",
+        "generated_code_syntax_rate": "Generated Code Syntax Success Rate",
+        "code_keyword_hit_rate": "Code Keyword Hit Rate",
+        "code_avg_generated_loc": "Code Avg Generated LOC",
         "viz_success_rate":     "Visualization Success Rate",
+        "viz_avg_latency_ms":   "Visualization Avg Latency (ms)",
+        "viz_p95_latency_ms":   "Visualization P95 Latency (ms)",
+        "viz_error_rate":       "Visualization Error Rate",
         "skip_detection_acc":   "Skip Detection Accuracy",
         "conv_accuracy":        "Conversation Accuracy",
+        "conv_resolution_accuracy": "Conversation Resolution Accuracy",
+        "conv_joint_accuracy":  "Conversation Joint Accuracy",
     }
 
     for key, label in metric_labels.items():
-        val = results.get(key, "-")
+        val = results.get(key, "—")
         if isinstance(val, float):
-            bar = "#" * int(val * 20) if val <= 1 else ""
+            bar = "█" * int(val * 20) if val <= 1 else ""
             print(f"  {label:<40}: {val:.4f}  {bar}")
         else:
             print(f"  {label:<40}: {val}")
@@ -565,9 +698,9 @@ def run_full_evaluation(verbose: bool = True) -> dict:
         for key, label in metric_labels.items():
             writer.writerow({
                 "metric":      label,
-                    "our_system":  results.get(key, "-"),
-                    "base_codet5": BASELINES["Base CodeT5"].get(key, "-"),
-                    "chatgpt":     BASELINES["ChatGPT-3.5"].get(key, "-"),
+                "our_system":  results.get(key, "—"),
+                "base_codet5": BASELINES["Base CodeT5"].get(key, "—"),
+                "chatgpt":     BASELINES["ChatGPT-3.5"].get(key, "—"),
             })
 
     # Markdown report

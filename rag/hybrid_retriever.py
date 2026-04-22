@@ -64,9 +64,14 @@ def tokenize(text: str) -> list[str]:
 
 
 def build_doc_text(row: dict) -> str:
-    return (f"{row.get('explanation','')} "
-            f"{STAGE_NAMES.get(int(row.get('pipeline_stage',1)),'')} "
-            f"{row.get('code','')}")
+    stage_num = int(row.get("pipeline_stage", row.get("stage", 1)))
+    return (
+        f"{row.get('query', '')} "
+        f"{row.get('answer', '')} "
+        f"{row.get('why_explanation', '')} "
+        f"{STAGE_NAMES.get(stage_num, '')} "
+        f"{row.get('code', '')}"
+    )
 
 
 # ── Reciprocal Rank Fusion ─────────────────────────────────────────────────────
@@ -170,7 +175,11 @@ class HybridRetriever:
             rows = list(csv.DictReader(f))
 
         for row in rows:
-            row["pipeline_stage"] = int(row.get("pipeline_stage", 1))
+            stage_val = row.get("pipeline_stage", row.get("stage", 1))
+            try:
+                row["pipeline_stage"] = int(stage_val)
+            except (TypeError, ValueError):
+                row["pipeline_stage"] = 1
         self.documents = rows
         self.corpus_texts = [build_doc_text(r) for r in rows]
 
