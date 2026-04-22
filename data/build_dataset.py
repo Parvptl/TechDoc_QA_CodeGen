@@ -21,6 +21,8 @@ import json
 import re
 import random
 import hashlib
+import subprocess
+import io
 from pathlib import Path
 from typing import Optional
 
@@ -170,24 +172,102 @@ def setup_kaggle():
         return False
 
 
-def download_notebooks(competition: str, out_dir: Path, max_notebooks: int = 20) -> list[Path]:
-    """Download top gold + silver medal notebooks for a competition."""
+def _list_top_kernel_refs(
+    competition: str,
+    max_notebooks: int,
+    min_votes: int,
+) -> list[str]:
+    """List kernel refs via Kaggle CLI with explicit vote counts."""
+    cmd = [
+        "kaggle",
+        "kernels",
+        "list",
+        "--competition",
+        competition,
+        "--sort-by",
+        "voteCount",
+        "--page-size",
+        str(min(200, max_notebooks * 4)),
+        "--language",
+        "python",
+        "--kernel-type",
+        "notebook",
+        "--csv",
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=False, check=False)
+    if proc.returncode != 0:
+        err = proc.stderr.decode("utf-8", errors="ignore") if isinstance(proc.stderr, bytes) else str(proc.stderr)
+        print(f"[WARN] kernels list failed for {competition}: {err.strip()}")
+        return []
+
+    refs = []
+    raw_out = proc.stdout
+    if isinstance(raw_out, bytes):
+        csv_text = raw_out.decode("utf-8", errors="ignore")
+    else:
+        csv_text = str(raw_out)
+    reader = csv.DictReader(io.StringIO(csv_text))
+    for row in reader:
+        try:
+            votes = int(str(row.get("totalVotes", "0")).strip())
+        except ValueError:
+            votes = 0
+        ref = str(row.get("ref", "")).strip()
+        if not ref:
+            continue
+        if votes >= min_votes:
+            refs.append(ref)
+        if len(refs) >= max_notebooks:
+            break
+    return refs
+
+
+def download_notebooks(
+    competition: str,
+    out_dir: Path,
+    max_notebooks: int = 20,
+    min_votes: int = 25,
+) -> list[Path]:
+    """Download top high-vote Python notebooks for a competition."""
     try:
-        import kaggle
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        # Download gold (score_rank=1 means highest voted)
-        kaggle.api.kernels_list(
+        refs = _list_top_kernel_refs(
             competition=competition,
-            page_size=max_notebooks,
-            language="python",
-            kernel_type="notebook",
-            sort_by="hotness",
-            output=str(out_dir),
+            max_notebooks=max_notebooks,
+            min_votes=min_votes,
         )
-        notebooks = list(out_dir.glob("*.ipynb"))
-        print(f"[INFO] {competition}: downloaded {len(notebooks)} notebooks")
-        return notebooks
+
+        downloaded = []
+        for ref in refs:
+            try:
+                cmd = [
+                    "kaggle",
+                    "kernels",
+                    "pull",
+                    ref,
+                    "--path",
+                    str(out_dir),
+                ]
+                proc = subprocess.run(
+                    cmd,
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                if proc.returncode != 0:
+                    continue
+                stem = ref.split("/")[-1]
+                nb_path = out_dir / f"{stem}.ipynb"
+                if nb_path.exists():
+                    downloaded.append(nb_path)
+                if len(downloaded) >= max_notebooks:
+                    break
+            except Exception:
+                continue
+
+        print(f"[INFO] {competition}: downloaded {len(downloaded)} high-vote notebooks (votes>={min_votes})")
+        return downloaded
     except Exception as e:
         print(f"[WARN] Failed to download {competition}: {e}")
         return []
@@ -237,7 +317,7 @@ def extract_pairs_from_notebook(nb_path: Path, competition: str) -> list[dict]:
     return pairs
 
 
-def scrape_kaggle(competitions=None, max_notebooks_per_comp=20) -> list[dict]:
+def scrape_kaggle(competitions=None, max_notebooks_per_comp=20, min_votes: int = 25) -> list[dict]:
     """Main Kaggle scraping pipeline."""
     if not setup_kaggle():
         return []
@@ -248,11 +328,13 @@ def scrape_kaggle(competitions=None, max_notebooks_per_comp=20) -> list[dict]:
 
     for comp in competitions:
         comp_dir = nb_dir / comp
-        notebooks = download_notebooks(comp, comp_dir, max_notebooks_per_comp)
+        notebooks = download_notebooks(comp, comp_dir, max_notebooks_per_comp, min_votes=min_votes)
+        comp_pairs = 0
         for nb in notebooks:
             pairs = extract_pairs_from_notebook(nb, comp)
             all_pairs.extend(pairs)
-        print(f"[INFO] {comp}: extracted {len(all_pairs)} total pairs so far")
+            comp_pairs += len(pairs)
+        print(f"[INFO] {comp}: extracted {comp_pairs} pairs, total so far={len(all_pairs)}")
 
     return all_pairs
 
@@ -277,6 +359,17 @@ def load_curated_fallback() -> list[dict]:
 
     # Add missing columns
     for row in rows:
+        # Support both legacy schemas:
+        # 1) explanation/code/pipeline_stage
+        # 2) query/answer/code/stage
+        if "pipeline_stage" not in row:
+            row["pipeline_stage"] = row.get("stage", 1)
+        if "explanation" not in row:
+            row["explanation"] = row.get("query", "")
+        if "code" not in row:
+            row["code"] = ""
+        if "difficulty" not in row:
+            row["difficulty"] = row.get("difficulty", "intermediate")
         if "has_visual" not in row:
             row["has_visual"] = has_visual_output(row.get("code", ""))
         if "notebook_id" not in row:
@@ -304,7 +397,13 @@ def save_csv(rows: list[dict], path: str):
 
 
 # ── Main pipeline ──────────────────────────────────────────────────────────────
-def build_full_dataset(use_kaggle: bool = True, output_dir: str = "data") -> dict:
+def build_full_dataset(
+    use_kaggle: bool = True,
+    output_dir: str = "data",
+    competitions: Optional[list[str]] = None,
+    max_notebooks: int = 20,
+    min_votes: int = 25,
+) -> dict:
     """
     Full dataset construction pipeline.
     Returns dict of {train, val, test, full} DataFrames.
@@ -316,7 +415,11 @@ def build_full_dataset(use_kaggle: bool = True, output_dir: str = "data") -> dic
     rows = []
 
     if use_kaggle:
-        kaggle_rows = scrape_kaggle()
+        kaggle_rows = scrape_kaggle(
+            competitions=competitions,
+            max_notebooks_per_comp=max_notebooks,
+            min_votes=min_votes,
+        )
         if kaggle_rows:
             print(f"[INFO] Kaggle: {len(kaggle_rows)} raw pairs")
             rows.extend(kaggle_rows)
@@ -372,10 +475,18 @@ if __name__ == "__main__":
                         help="Kaggle competition slugs to download")
     parser.add_argument("--max-notebooks", type=int, default=20,
                         help="Max notebooks per competition")
+    parser.add_argument("--min-votes", type=int, default=25,
+                        help="Minimum upvotes required per notebook")
+    parser.add_argument("--output-dir", default="data/kaggle_expanded",
+                        help="Output directory for generated CSV files")
     args = parser.parse_args()
 
     result = build_full_dataset(
         use_kaggle=not args.no_kaggle,
+        output_dir=args.output_dir,
+        competitions=args.competitions,
+        max_notebooks=args.max_notebooks,
+        min_votes=args.min_votes,
     )
     print(f"\n✅ Dataset pipeline complete.")
     print(f"   Full:  {len(result['full'])} rows")

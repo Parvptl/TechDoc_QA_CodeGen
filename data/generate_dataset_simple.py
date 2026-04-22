@@ -7,12 +7,15 @@ Produces 210+ QA pairs across 7 pipeline stages with enriched fields:
 import csv
 import json
 import os
+import hashlib
 
 FIELDS = [
     "query", "stage", "answer", "code",
     "why_explanation", "when_to_use", "common_pitfall",
     "related_questions", "difficulty",
 ]
+
+TARGET_TOTAL = 3500
 
 # ---------------------------------------------------------------------------
 # HAND-CRAFTED SEED DATASET  (6 per stage = 42 entries)
@@ -569,9 +572,49 @@ STAGE_META = {
 DOMAIN_VARS = [
     "Titanic", "House Prices", "Sales", "Churn", "Credit Risk",
     "Fraud", "Customer Segmentation", "Recommendation",
-    "Text Classification", "Time Series",
-    "Medical Diagnosis", "Stock Price", "Energy Consumption",
-    "Sentiment", "Anomaly Detection",
+    "Text Classification", "Time Series", "Medical Diagnosis",
+    "Stock Price", "Energy Consumption", "Sentiment", "Anomaly Detection",
+    "Loan Default", "Customer Lifetime Value", "Ad Click Prediction",
+    "Demand Forecasting", "Inventory Optimization", "Telecom Churn",
+    "Insurance Claim", "Employee Attrition", "Hospital Readmission",
+    "Disease Risk Scoring", "E-commerce Conversion", "Product Return",
+    "Price Optimization", "Ride Fare Prediction", "Taxi Trip Duration",
+    "Power Load Forecasting", "Air Quality Index", "Rainfall Prediction",
+    "Traffic Congestion", "Vehicle Failure", "Fraud Transaction",
+    "Credit Card Default", "Bankruptcy Prediction", "Lead Scoring",
+    "Campaign Response", "Subscription Renewal", "Customer Support Intent",
+    "Document Classification", "Review Rating", "Spam Detection",
+    "Phishing Detection", "News Topic Modeling", "Movie Recommendation",
+    "Music Recommendation", "Ad Ranking", "Search Ranking",
+    "Image Quality Score", "Retail Basket Analysis", "Store Revenue",
+    "Supply Chain Delay", "Shipping ETA", "Maintenance Scheduling",
+    "Manufacturing Defect", "Yield Prediction", "Process Control",
+    "Network Intrusion", "Cyber Threat Detection", "Cloud Cost Forecasting",
+    "Call Center Volume", "Workforce Planning", "Student Performance",
+    "Dropout Prediction", "Placement Prediction", "Exam Score Forecasting",
+    "Agriculture Yield", "Crop Disease", "Water Demand Forecasting",
+    "Wildfire Risk", "Earthquake Damage", "Insurance Pricing",
+    "Portfolio Risk", "Volatility Forecasting", "Claims Triage",
+    "Medical Triage", "Emergency Wait Time", "Drug Response",
+    "Gene Expression Classification", "Protein Function Prediction",
+    "IoT Sensor Fault", "Smart Meter Forecasting", "Demand Response",
+    "CO2 Emission Prediction", "Warehouse Throughput", "Order Cancellation",
+]
+
+QUERY_PREFIXES = [
+    "How do I",
+    "Can you explain how to",
+    "Show me how to",
+    "What is the best way to",
+    "Walk me through how to",
+]
+
+QUERY_SUFFIXES = [
+    "for beginners?",
+    "step by step?",
+    "with a practical example?",
+    "in a robust way?",
+    "for a production-style workflow?",
 ]
 
 # ---------------------------------------------------------------------------
@@ -583,13 +626,13 @@ def _make_related(query, stage, all_queries_by_stage):
     related = []
     same_stage = [q for q in all_queries_by_stage.get(stage, []) if q != query]
     if same_stage:
-        related.append(same_stage[hash(query) % len(same_stage)])
+        related.append(same_stage[_stable_hash(query) % len(same_stage)])
     if len(same_stage) > 1:
-        related.append(same_stage[(hash(query) + 7) % len(same_stage)])
+        related.append(same_stage[(_stable_hash(query) + 7) % len(same_stage)])
     next_stage = stage + 1 if stage < 7 else 1
     next_qs = all_queries_by_stage.get(next_stage, [])
     if next_qs:
-        related.append(next_qs[hash(query) % len(next_qs)])
+        related.append(next_qs[_stable_hash(query) % len(next_qs)])
     while len(related) < 3:
         prev_stage = stage - 1 if stage > 1 else 7
         prev_qs = all_queries_by_stage.get(prev_stage, [])
@@ -598,6 +641,29 @@ def _make_related(query, stage, all_queries_by_stage):
         else:
             related.append(query)
     return related[:3]
+
+
+def _stable_hash(text):
+    return int(hashlib.md5(text.encode("utf-8")).hexdigest(), 16)
+
+
+def _build_query_variants(base_query, stage_name):
+    variants = [base_query]
+    for pref in QUERY_PREFIXES:
+        variants.append(f"{pref} {base_query.lower()}")
+    for suff in QUERY_SUFFIXES:
+        variants.append(f"{base_query} {suff}")
+    variants.append(f"{base_query} ({stage_name})")
+    return variants
+
+
+def _difficulty_from_index(idx):
+    # Keep beginner-heavy distribution while increasing corpus scale.
+    if idx % 10 < 5:
+        return "beginner"
+    if idx % 10 < 8:
+        return "intermediate"
+    return "advanced"
 
 
 def build_dataset():
@@ -609,34 +675,51 @@ def build_dataset():
         row["stage"] = int(row["stage"])
         data.append(row)
 
-    target_total = 210
+    seen_queries = {d["query"] for d in data}
+    candidate_rows = []
     idx = 0
-    while len(data) < target_total:
-        stage = (idx % 7) + 1
+
+    # Generate a large stage-balanced pool from template x domain x paraphrase variants.
+    for stage in range(1, 8):
         meta = STAGE_META[stage]
-        q_idx = idx % len(meta["queries"])
-        v_idx = idx % len(DOMAIN_VARS)
-        var = DOMAIN_VARS[v_idx]
+        stage_name = meta["name"]
+        for var in DOMAIN_VARS:
+            for q_idx, query_template in enumerate(meta["queries"]):
+                base_query = query_template.replace("{var}", var)
+                for query_variant in _build_query_variants(base_query, stage_name):
+                    query_variant = " ".join(query_variant.split())
+                    if query_variant in seen_queries:
+                        continue
+                    seen_queries.add(query_variant)
+                    candidate_rows.append({
+                        "query": query_variant,
+                        "stage": stage,
+                        "answer": meta["answer_t"].replace("{var}", var),
+                        "code": meta["code_t"].replace("{var}", var),
+                        "why_explanation": meta["why_t"].replace("{var}", var),
+                        "when_to_use": meta["when_t"].replace("{var}", var),
+                        "common_pitfall": meta["pitfall_t"].replace("{var}", var),
+                        "related_questions": "[]",
+                        "difficulty": _difficulty_from_index(idx + q_idx),
+                    })
+                    idx += 1
 
-        query = meta["queries"][q_idx].replace("{var}", var)
+    # Interleave by stage for balanced growth and cap to target.
+    by_stage = {s: [] for s in range(1, 8)}
+    for row in candidate_rows:
+        by_stage[int(row["stage"])].append(row)
 
-        if any(d["query"] == query for d in data):
-            idx += 1
-            continue
-
-        diff = meta["difficulties"][q_idx % len(meta["difficulties"])]
-        data.append({
-            "query": query,
-            "stage": stage,
-            "answer": meta["answer_t"].replace("{var}", var),
-            "code": meta["code_t"].replace("{var}", var),
-            "why_explanation": meta["why_t"].replace("{var}", var),
-            "when_to_use": meta["when_t"].replace("{var}", var),
-            "common_pitfall": meta["pitfall_t"].replace("{var}", var),
-            "related_questions": "[]",
-            "difficulty": diff,
-        })
-        idx += 1
+    stage_cursor = {s: 0 for s in range(1, 8)}
+    while len(data) < TARGET_TOTAL:
+        added_any = False
+        for s in range(1, 8):
+            c = stage_cursor[s]
+            if c < len(by_stage[s]) and len(data) < TARGET_TOTAL:
+                data.append(by_stage[s][c])
+                stage_cursor[s] += 1
+                added_any = True
+        if not added_any:
+            break
 
     all_queries_by_stage = {}
     for d in data:
@@ -669,11 +752,11 @@ def build_dataset():
 
 def _validate(data):
     from collections import Counter
-    assert len(data) >= 200, f"Only {len(data)} entries (need 200+)"
+    assert len(data) >= 1000, f"Only {len(data)} entries (need 1000+)"
 
     stage_counts = Counter(int(d["stage"]) for d in data)
     for s in range(1, 8):
-        assert stage_counts.get(s, 0) >= 20, f"Stage {s} has only {stage_counts.get(s, 0)} entries (need 20+)"
+        assert stage_counts.get(s, 0) >= 100, f"Stage {s} has only {stage_counts.get(s, 0)} entries (need 100+)"
 
     for i, d in enumerate(data):
         for field in FIELDS:

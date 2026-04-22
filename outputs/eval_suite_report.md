@@ -56,6 +56,6 @@ Per-pattern PRF1:
 
 | Metric | Value |
 |---|---:|
-| BLEU-1 | 0.4329 |
-| ROUGE-L | 0.4738 |
+| BLEU-1 | 0.4479 |
+| ROUGE-L | 0.4894 |
 
