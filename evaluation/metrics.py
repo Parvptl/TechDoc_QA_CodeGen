@@ -168,3 +168,69 @@ def rouge_l(reference: str, hypothesis: str) -> float:
         return 0.0
     return float(2 * prec * rec / (prec + rec))
 
+
+# ---------------------------------------------------------------------------
+# Lightweight "CodeBLEU-like" score (NOT the official CodeBLEU paper metric)
+# ---------------------------------------------------------------------------
+
+
+def extract_code_keywords(code: str) -> set[str]:
+    """Extract Python-ish keyword tokens for a coarse overlap signal."""
+    import re
+
+    patterns = [
+        r"\b(def|class|import|from|return|yield|lambda)\b",
+        r"\b\w+\(\)",  # function calls (very rough)
+        r"\b[A-Z][a-zA-Z]+\b",  # CamelCase
+        r"\.\w+\(",  # method calls
+    ]
+    tokens: set[str] = set()
+    for p in patterns:
+        tokens.update(re.findall(p, code or ""))
+    return tokens
+
+
+def codebleu_simple(reference: str, hypothesis: str) -> float:
+    """
+    Simplified Code-style score (same spirit as `evaluation/benchmark.compute_codebleu`):
+      0.25 * bleu1 + 0.25 * keyword_match + 0.25 * syntax_valid + 0.25 * ast_node_overlap
+
+    Notes:
+      - This is a lightweight approximation for reporting.
+      - Official CodeBLEU uses grammar/dataflow signals; we do not claim full parity.
+    """
+    import ast
+
+    bleu = float(bleu1(reference, hypothesis))
+
+    ref_kws = extract_code_keywords(reference)
+    hyp_kws = extract_code_keywords(hypothesis)
+    if ref_kws:
+        kw_match = len(ref_kws & hyp_kws) / float(len(ref_kws))
+    else:
+        kw_match = 0.5
+
+    try:
+        ast.parse(hypothesis or "")
+        syntax_score = 1.0
+    except SyntaxError:
+        syntax_score = 0.0
+
+    def _ast_nodes(code: str) -> set[str]:
+        try:
+            tree = ast.parse(code or "")
+            return {type(node).__name__ for node in ast.walk(tree)}
+        except Exception:
+            return set()
+
+    ref_nodes = _ast_nodes(reference)
+    hyp_nodes = _ast_nodes(hypothesis)
+    if ref_nodes:
+        node_overlap = len(ref_nodes & hyp_nodes) / float(len(ref_nodes))
+    else:
+        node_overlap = 0.5
+
+    return float(
+        round(0.25 * bleu + 0.25 * kw_match + 0.25 * syntax_score + 0.25 * node_overlap, 4)
+    )
+

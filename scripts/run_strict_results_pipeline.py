@@ -7,7 +7,7 @@ Steps:
 4) Train stage model on train split
 5) Evaluate stage model on train/val/test
 6) Train CodeT5 smoke model on train-only subset
-7) Evaluate CodeT5 on held-out val/test samples
+7) Evaluate CodeT5 on full val/test splits (BLEU-1 + simplified CodeBLEU) and fixed CODE_QUERIES benchmark
 """
 
 from __future__ import annotations
@@ -22,6 +22,9 @@ import sys
 from pathlib import Path
 
 from sklearn.metrics import accuracy_score, f1_score
+
+from evaluation.benchmark import CODE_QUERIES
+from evaluation.metrics import bleu1, codebleu_simple
 
 
 STAGE_NAME = {
@@ -134,36 +137,92 @@ def make_train_smoke_subset(base_dir: Path, per_stage: int = 120) -> Path:
     return dst
 
 
-def codet5_eval(base_dir: Path, out_path: Path, sample_n: int = 40) -> None:
+def _select_rows(rows: list[dict], sample_n: int) -> list[dict]:
+    """If sample_n <= 0, use all rows; otherwise random-sample up to sample_n."""
+    if sample_n <= 0 or sample_n >= len(rows):
+        return rows
+    random.seed(42)
+    return random.sample(rows, sample_n)
+
+
+def codet5_eval(base_dir: Path, out_path: Path, sample_n: int = 0) -> None:
     from models.finetune_codet5 import compute_code_metrics, generate_codet5
 
     report = {}
-    random.seed(42)
     for split in ("val", "test"):
         rows = list(csv.DictReader((base_dir / f"stage_labeled_{split}.csv").open(encoding="utf-8")))
-        sample = random.sample(rows, min(sample_n, len(rows)))
-        syntax, tok, line = [], [], []
+        sample = _select_rows(rows, sample_n)
+        syntax, tok, line, bleu_scores, codebleu_vals = [], [], [], [], []
         methods = {}
         for r in sample:
             st = int(r.get("predicted_stage", 1))
             q = str(r.get("explanation", ""))[:220]
+            ref_code = str(r.get("code", ""))
             out = generate_codet5(q, STAGE_NAME.get(st, ""), max_new_tokens=140)
-            m = compute_code_metrics(str(out.get("code", "")), str(r.get("code", "")))
+            gen_code = str(out.get("code", ""))
+            m = compute_code_metrics(gen_code, ref_code)
             syntax.append(1.0 if m["syntax_valid"] else 0.0)
             tok.append(float(m["token_overlap"]))
             line.append(float(m["line_match"]))
+            bleu_scores.append(float(bleu1(ref_code, gen_code)))
+            codebleu_vals.append(float(codebleu_simple(ref_code, gen_code)))
             key = str(out.get("method", "unknown"))
             methods[key] = methods.get(key, 0) + 1
         report[split] = {
             "n_eval": len(sample),
+            "sample_n_arg": sample_n,
             "syntax_rate": round(sum(syntax) / max(1, len(syntax)), 4),
             "avg_token_overlap": round(sum(tok) / max(1, len(tok)), 4),
             "avg_line_match": round(sum(line) / max(1, len(line)), 4),
+            "avg_bleu1": round(sum(bleu_scores) / max(1, len(bleu_scores)), 4),
+            "avg_codebleu": round(sum(codebleu_vals) / max(1, len(codebleu_vals)), 4),
             "methods": methods,
         }
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"[INFO] CodeT5 split report: {out_path}")
+    print(json.dumps(report, indent=2))
+
+
+def codet5_benchmark_eval(out_path: Path, sample_n: int = 0) -> None:
+    """Evaluate CodeT5 on the fixed CODE_QUERIES benchmark list (full set by default)."""
+    from models.finetune_codet5 import compute_code_metrics, generate_codet5
+
+    rows = [
+        {"query": q, "stage": st, "reference_snippet": ref}
+        for (q, st, ref) in CODE_QUERIES
+    ]
+    sample = _select_rows(rows, sample_n)
+    syntax, tok, line, bleu_scores, codebleu_vals = [], [], [], [], []
+    methods: dict[str, int] = {}
+    for r in sample:
+        st = int(r["stage"])
+        q = str(r["query"])
+        ref_code = str(r["reference_snippet"])
+        out = generate_codet5(q, STAGE_NAME.get(st, ""), max_new_tokens=140)
+        gen_code = str(out.get("code", ""))
+        m = compute_code_metrics(gen_code, ref_code)
+        syntax.append(1.0 if m["syntax_valid"] else 0.0)
+        tok.append(float(m["token_overlap"]))
+        line.append(float(m["line_match"]))
+        bleu_scores.append(float(bleu1(ref_code, gen_code)))
+        codebleu_vals.append(float(codebleu_simple(ref_code, gen_code)))
+        key = str(out.get("method", "unknown"))
+        methods[key] = methods.get(key, 0) + 1
+
+    report = {
+        "n_eval": len(sample),
+        "sample_n_arg": sample_n,
+        "syntax_rate": round(sum(syntax) / max(1, len(syntax)), 4),
+        "avg_token_overlap": round(sum(tok) / max(1, len(tok)), 4),
+        "avg_line_match": round(sum(line) / max(1, len(line)), 4),
+        "avg_bleu1": round(sum(bleu_scores) / max(1, len(bleu_scores)), 4),
+        "avg_codebleu": round(sum(codebleu_vals) / max(1, len(codebleu_vals)), 4),
+        "methods": methods,
+    }
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    print(f"[INFO] CodeT5 benchmark report: {out_path}")
     print(json.dumps(report, indent=2))
 
 
@@ -173,6 +232,18 @@ def main() -> int:
     parser.add_argument("--min-votes", type=int, default=30)
     parser.add_argument("--kaggle-output", default="data/kaggle_expanded")
     parser.add_argument("--train-codet5", action="store_true", help="Run CodeT5 smoke training/eval.")
+    parser.add_argument(
+        "--codet5-eval-sample-n",
+        type=int,
+        default=0,
+        help="Rows per val/test split for CodeT5 eval; <=0 means full split.",
+    )
+    parser.add_argument(
+        "--benchmark-sample-n",
+        type=int,
+        default=0,
+        help="Rows for benchmark eval; <=0 means all CODE_QUERIES.",
+    )
     parser.add_argument("--codet5-epochs", type=int, default=1)
     parser.add_argument("--codet5-batch", type=int, default=2)
     args = parser.parse_args()
@@ -251,11 +322,15 @@ def main() -> int:
             shutil.rmtree(active)
         shutil.copytree(Path("models/codet5_finetuned_train_smoke"), active)
 
-        # 7) Evaluate on held-out val/test
+        # 7) Evaluate on held-out val/test (full splits by default)
         codet5_eval(
             base_dir=kaggle_dir,
             out_path=Path("outputs/codet5_split_eval.json"),
-            sample_n=40,
+            sample_n=args.codet5_eval_sample_n,
+        )
+        codet5_benchmark_eval(
+            out_path=Path("outputs/codet5_benchmark_eval.json"),
+            sample_n=args.benchmark_sample_n,
         )
 
     return 0
