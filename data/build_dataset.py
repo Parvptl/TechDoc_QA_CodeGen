@@ -23,8 +23,14 @@ import random
 import hashlib
 import subprocess
 import io
+import sys
 from pathlib import Path
 from typing import Optional
+
+# Subprocess / `python data/build_dataset.py` sets sys.path[0] to `data/`, not repo root.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 random.seed(42)
 
