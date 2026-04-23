@@ -175,6 +175,20 @@ def finetune_codet5(
 # ── Inference ─────────────────────────────────────────────────────────────────
 _codet5_model     = None
 _codet5_tokenizer = None
+_codet5_device    = None
+
+
+def _select_infer_device(torch) -> str:
+    """
+    Pick inference device.
+    Optional override: DS_MENTOR_DEVICE=cpu|cuda
+    """
+    requested = str(os.getenv("DS_MENTOR_DEVICE", "")).strip().lower()
+    if requested in {"cpu", "cuda"}:
+        if requested == "cuda" and not torch.cuda.is_available():
+            return "cpu"
+        return requested
+    return "cuda" if torch.cuda.is_available() else "cpu"
 
 
 def generate_codet5(query: str, stage_name: str = "",  # noqa
@@ -196,25 +210,32 @@ def generate_codet5(query: str, stage_name: str = "",  # noqa
           "valid":  bool,   # syntax valid?
         }
     """
-    global _codet5_model, _codet5_tokenizer
+    global _codet5_model, _codet5_tokenizer, _codet5_device
 
     # ── Try deployed/fine-tuned model directory first ─────────────────
     if Path(MODEL_DIR).exists():
         try:
             import torch
             from transformers import AutoTokenizer, T5ForConditionalGeneration
+            infer_device = _select_infer_device(torch)
 
             if _codet5_model is None:
                 print(f"[INFO] Loading CodeT5 from {MODEL_DIR}...")
                 _codet5_tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR, use_fast=False)
                 _codet5_model     = T5ForConditionalGeneration.from_pretrained(MODEL_DIR)
+                _codet5_model.to(infer_device)
                 _codet5_model.eval()
+                _codet5_device = infer_device
+            elif _codet5_device != infer_device:
+                _codet5_model.to(infer_device)
+                _codet5_device = infer_device
 
             input_text = f"generate python: stage={stage_name} question={query}"
             inputs = _codet5_tokenizer(
                 input_text, return_tensors="pt",
                 max_length=256, truncation=True
             )
+            inputs = {k: v.to(_codet5_device) for k, v in inputs.items()}
             with torch.no_grad():
                 outputs = _codet5_model.generate(
                     **inputs,
@@ -242,17 +263,24 @@ def generate_codet5(query: str, stage_name: str = "",  # noqa
     try:
         import torch
         from transformers import AutoTokenizer, T5ForConditionalGeneration
+        infer_device = _select_infer_device(torch)
 
         if _codet5_model is None:
             _codet5_tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, use_fast=False)
             _codet5_model = T5ForConditionalGeneration.from_pretrained(BASE_MODEL)
+            _codet5_model.to(infer_device)
             _codet5_model.eval()
+            _codet5_device = infer_device
+        elif _codet5_device != infer_device:
+            _codet5_model.to(infer_device)
+            _codet5_device = infer_device
 
         input_text = f"generate python: stage={stage_name} question={query}"
         inputs = _codet5_tokenizer(
             input_text, return_tensors="pt",
             max_length=256, truncation=True
         )
+        inputs = {k: v.to(_codet5_device) for k, v in inputs.items()}
         with torch.no_grad():
             outputs = _codet5_model.generate(
                 **inputs,
