@@ -356,9 +356,9 @@ def scrape_kaggle(competitions=None, max_notebooks_per_comp=20, min_votes: int =
 
 
 # ── Curated fallback ───────────────────────────────────────────────────────────
-def load_curated_fallback() -> list[dict]:
+def load_curated_fallback(source_csv: Optional[Path] = None) -> list[dict]:
     """Load existing curated dataset and add has_visual + notebook_id columns."""
-    path = Path("data/dataset.csv")
+    path = source_csv or Path("data/dataset.csv")
     if not path.exists():
         # Run create_dataset_v2 logic inline
         from data.create_dataset import build_curated
@@ -441,7 +441,9 @@ def build_full_dataset(
             rows.extend(kaggle_rows)
 
     # Always include curated data
-    curated = load_curated_fallback()
+    preferred_curated = Path(output_dir) / "dataset.csv"
+    curated_source = preferred_curated if preferred_curated.exists() else Path("data/dataset.csv")
+    curated = load_curated_fallback(curated_source)
     rows.extend(curated)
     print(f"[INFO] Total before cleaning: {len(rows)}")
 
