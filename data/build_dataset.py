@@ -21,11 +21,9 @@ import json
 import re
 import random
 import hashlib
-import subprocess
-import io
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 # Subprocess / `python data/build_dataset.py` sets sys.path[0] to `data/`, not repo root.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -33,6 +31,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 random.seed(42)
+
 
 # ── Stage definitions ─────────────────────────────────────────────────────────
 STAGE_NAMES = {
@@ -178,54 +177,53 @@ def setup_kaggle():
         return False
 
 
-def _list_top_kernel_refs(
-    competition: str,
-    max_notebooks: int,
-    min_votes: int,
-) -> list[str]:
-    """List kernel refs via Kaggle CLI with explicit vote counts."""
-    cmd = [
-        "kaggle",
-        "kernels",
-        "list",
-        "--competition",
-        competition,
-        "--sort-by",
-        "voteCount",
-        "--page-size",
-        str(min(200, max_notebooks * 4)),
-        "--language",
-        "python",
-        "--kernel-type",
-        "notebook",
-        "--csv",
-    ]
-    proc = subprocess.run(cmd, capture_output=True, text=False, check=False)
-    if proc.returncode != 0:
-        err = proc.stderr.decode("utf-8", errors="ignore") if isinstance(proc.stderr, bytes) else str(proc.stderr)
-        print(f"[WARN] kernels list failed for {competition}: {err.strip()}")
-        return []
-
-    refs = []
-    raw_out = proc.stdout
-    if isinstance(raw_out, bytes):
-        csv_text = raw_out.decode("utf-8", errors="ignore")
-    else:
-        csv_text = str(raw_out)
-    reader = csv.DictReader(io.StringIO(csv_text))
-    for row in reader:
+def _kernel_ref_and_votes(meta) -> Tuple[Optional[str], int]:
+    """Normalize Kaggle kernel list entries across API / protobuf versions."""
+    if meta is None:
+        return None, 0
+    if isinstance(meta, dict):
+        ref = meta.get("ref")
         try:
-            votes = int(str(row.get("totalVotes", "0")).strip())
-        except ValueError:
+            votes = int(meta.get("totalVotes", 0) or 0)
+        except (TypeError, ValueError):
             votes = 0
-        ref = str(row.get("ref", "")).strip()
-        if not ref:
-            continue
-        if votes >= min_votes:
-            refs.append(ref)
-        if len(refs) >= max_notebooks:
-            break
-    return refs
+        return (str(ref).strip() if ref else None), votes
+    ref = getattr(meta, "ref", None)
+    if ref is None:
+        ref = getattr(meta, "Ref", None)
+    votes_raw = getattr(meta, "totalVotes", None)
+    if votes_raw is None:
+        votes_raw = getattr(meta, "total_votes", None)
+    try:
+        votes = int(votes_raw or 0)
+    except (TypeError, ValueError):
+        votes = 0
+    if ref:
+        return str(ref).strip(), votes
+    return None, votes
+
+
+def _kernels_list_page(api, competition: str, page: int, page_size: int):
+    """One page of kernels; supports older ``kaggle`` without ``page`` kwarg."""
+    try:
+        return api.kernels_list(
+            competition=competition,
+            page=page,
+            page_size=page_size,
+            language="python",
+            kernel_type="notebook",
+            sort_by="voteCount",
+        ) or []
+    except TypeError:
+        if page > 1:
+            return []
+        return api.kernels_list(
+            competition=competition,
+            page_size=page_size,
+            language="python",
+            kernel_type="notebook",
+            sort_by="voteCount",
+        ) or []
 
 
 def download_notebooks(
@@ -234,34 +232,36 @@ def download_notebooks(
     max_notebooks: int = 20,
     min_votes: int = 25,
 ) -> list[Path]:
-    """Download top high-vote Python notebooks for a competition."""
+    """
+    List kernels via official Kaggle Python API, filter by votes, pull each .ipynb.
+
+    Older project versions called ``kernels_list(..., output=dir)``; current
+    ``kaggle`` packages return metadata only and require ``kernels_pull`` per kernel
+    (same auth as ``setup_kaggle()`` — avoids flaky subprocess / CLI on Windows).
+    """
     try:
+        import kaggle
+
+        api = kaggle.api
         out_dir.mkdir(parents=True, exist_ok=True)
+        downloaded: list[Path] = []
+        page = 1
+        page_size = 100  # server max for list_kernels
 
-        refs = _list_top_kernel_refs(
-            competition=competition,
-            max_notebooks=max_notebooks,
-            min_votes=min_votes,
-        )
+        while len(downloaded) < max_notebooks:
+            kernels = _kernels_list_page(api, competition, page, page_size)
 
-        downloaded = []
-        for ref in refs:
-            try:
-                cmd = [
-                    "kaggle",
-                    "kernels",
-                    "pull",
-                    ref,
-                    "--path",
-                    str(out_dir),
-                ]
-                proc = subprocess.run(
-                    cmd,
-                    check=False,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-                if proc.returncode != 0:
+            if not kernels:
+                break
+
+            for meta in kernels:
+                ref, votes = _kernel_ref_and_votes(meta)
+                if not ref or votes < min_votes:
+                    continue
+                try:
+                    api.kernels_pull(ref, path=str(out_dir), metadata=False, quiet=True)
+                except Exception as pull_e:
+                    print(f"[WARN] kernels_pull failed {ref}: {pull_e}")
                     continue
                 stem = ref.split("/")[-1]
                 nb_path = out_dir / f"{stem}.ipynb"
@@ -269,10 +269,20 @@ def download_notebooks(
                     downloaded.append(nb_path)
                 if len(downloaded) >= max_notebooks:
                     break
-            except Exception:
-                continue
 
-        print(f"[INFO] {competition}: downloaded {len(downloaded)} high-vote notebooks (votes>={min_votes})")
+            if len(downloaded) >= max_notebooks:
+                break
+            if len(kernels) < page_size:
+                break
+            page += 1
+            if page > 50:
+                print(f"[WARN] {competition}: stopped kernel list pagination at page {page}")
+                break
+
+        print(
+            f"[INFO] {competition}: downloaded {len(downloaded)} notebooks "
+            f"(votes>={min_votes}, cap={max_notebooks})"
+        )
         return downloaded
     except Exception as e:
         print(f"[WARN] Failed to download {competition}: {e}")

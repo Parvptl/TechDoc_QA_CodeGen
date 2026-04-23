@@ -74,7 +74,7 @@ def finetune_codet5(
     try:
         import torch
         from transformers import (
-            RobertaTokenizer,
+            AutoTokenizer,
             T5ForConditionalGeneration,
             DataCollatorForSeq2Seq,
             Seq2SeqTrainer,
@@ -96,7 +96,8 @@ def finetune_codet5(
     )
     print(f"[INFO] Train: {len(X_tr)}, Val: {len(X_val)}")
 
-    tokenizer = RobertaTokenizer.from_pretrained(BASE_MODEL)
+    # use_fast=False: avoids HF/tokenizers crashes on some stacks (e.g. Kaggle) with CodeT5.
+    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, use_fast=False)
     model = T5ForConditionalGeneration.from_pretrained(BASE_MODEL)
     model.to(device)
 
@@ -201,11 +202,11 @@ def generate_codet5(query: str, stage_name: str = "",  # noqa
     if Path(MODEL_DIR).exists():
         try:
             import torch
-            from transformers import RobertaTokenizer, T5ForConditionalGeneration
+            from transformers import AutoTokenizer, T5ForConditionalGeneration
 
             if _codet5_model is None:
                 print(f"[INFO] Loading CodeT5 from {MODEL_DIR}...")
-                _codet5_tokenizer = RobertaTokenizer.from_pretrained(MODEL_DIR)
+                _codet5_tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR, use_fast=False)
                 _codet5_model     = T5ForConditionalGeneration.from_pretrained(MODEL_DIR)
                 _codet5_model.eval()
 
@@ -240,10 +241,10 @@ def generate_codet5(query: str, stage_name: str = "",  # noqa
     # ── Fallback to base CodeT5 if no local model directory is present ─
     try:
         import torch
-        from transformers import RobertaTokenizer, T5ForConditionalGeneration
+        from transformers import AutoTokenizer, T5ForConditionalGeneration
 
         if _codet5_model is None:
-            _codet5_tokenizer = RobertaTokenizer.from_pretrained(BASE_MODEL)
+            _codet5_tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, use_fast=False)
             _codet5_model = T5ForConditionalGeneration.from_pretrained(BASE_MODEL)
             _codet5_model.eval()
 

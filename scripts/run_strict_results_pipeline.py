@@ -252,23 +252,29 @@ def main() -> int:
     )
     parser.add_argument("--codet5-epochs", type=int, default=1)
     parser.add_argument("--codet5-batch", type=int, default=2)
+    parser.add_argument(
+        "--no-kaggle",
+        action="store_true",
+        help="Pass through to build_dataset: skip notebook scrape (use after pushing CSVs from local).",
+    )
     args = parser.parse_args()
 
     kaggle_dir = Path(args.kaggle_output)
 
     # 1) Build expanded dataset
-    run_cmd(
-        [
-            sys.executable,
-            "data/build_dataset.py",
-            "--output-dir",
-            str(kaggle_dir),
-            "--max-notebooks",
-            str(args.max_notebooks),
-            "--min-votes",
-            str(args.min_votes),
-        ]
-    )
+    build_cmd = [
+        sys.executable,
+        "data/build_dataset.py",
+        "--output-dir",
+        str(kaggle_dir),
+        "--max-notebooks",
+        str(args.max_notebooks),
+        "--min-votes",
+        str(args.min_votes),
+    ]
+    if args.no_kaggle:
+        build_cmd.append("--no-kaggle")
+    run_cmd(build_cmd)
 
     # 2) Stage-labeled split files
     make_stage_labeled_splits(kaggle_dir)
