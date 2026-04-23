@@ -21,6 +21,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Running as `python scripts/run_strict_results_pipeline.py` puts `scripts/` on sys.path,
+# not the repo root — ensure imports like `evaluation.*` work (local, Kaggle, CI).
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 from sklearn.metrics import accuracy_score, f1_score
 
 from evaluation.benchmark import CODE_QUERIES
