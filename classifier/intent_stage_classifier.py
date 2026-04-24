@@ -1,16 +1,4 @@
-"""
-PART 4 — STAGE + INTENT CLASSIFIER (Member 4)
-===============================================
-Two classifiers in one module:
-
-  1. Stage classifier (1–7)   — which DS pipeline step the query belongs to
-  2. Intent classifier        — what the user wants:
-       "code"          → generate/show code
-       "explanation"   → explain a concept
-       "visualization" → create a chart/plot
-
-Both use TF-IDF + LinearSVC (fast, no GPU, 98%+ CV accuracy).
-DistilBERT fine-tuning path available if GPU present.
+"""TF-IDF + LinearSVC classifiers for DS pipeline stage (1-7) and query intent (code/explanation/visualization).
 
 Functions:
     predict_stage(query)          → "Stage N — Name"

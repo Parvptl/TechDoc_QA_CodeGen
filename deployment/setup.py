@@ -1,11 +1,4 @@
-"""
-PART 11 — DEPLOYMENT-READY STRUCTURE
-======================================
-Creates the full project scaffold, validates all modules,
-and generates a deployment-ready package.
-
-Run:  python deployment/setup.py
-"""
+"""Validates project modules and generates a deployment-ready package structure."""
 
 import sys
 import subprocess

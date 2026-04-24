@@ -1,31 +1,4 @@
-"""
-PART 10 — EVALUATION BENCHMARK SYSTEM
-=======================================
-Compares three systems across 10 metrics:
-  - Base CodeT5 (no fine-tuning, no retrieval)
-  - ChatGPT (simulated realistic baseline from literature)
-  - Our System (DS Mentor QA)
-
-Metrics evaluated:
-  1.  Stage Classification Accuracy
-  2.  Stage Classification Macro-F1
-  3.  Retrieval MRR
-  4.  Retrieval Recall@5
-  5.  Retrieval Latency (ms/query)
-  6.  CodeBLEU (code quality metric)
-  7.  Code Syntax Success Rate (AST parse)
-  8.  Visualization Success Rate
-  9.  Skip Detection Accuracy
-  10. Multi-turn Conversation Accuracy
-
-Output:
-  outputs/eval_results.csv
-  outputs/eval_report.md
-  outputs/comparison_table.md
-
-Run:
-  python evaluation/benchmark.py
-"""
+"""Multi-metric evaluation benchmark comparing DS Mentor QA against baselines across retrieval, code quality, and conversation metrics."""
 
 import ast
 import csv

@@ -1,24 +1,4 @@
-"""
-PART 3c — CodeT5 FINE-TUNING (Member 3)
-=========================================
-Fine-tunes CodeT5-small on the DS Mentor dataset:
-  Input:  natural language question + stage context
-  Output: Python code snippet
-
-Architecture:
-  - Base model: Salesforce/codet5-small (60M params, feasible on CPU/Colab)
-  - Fine-tune with seq2seq (encoder-decoder)
-  - Training data: data/stage_labeled_dataset.csv (275 pairs)
-  - Inference: generate_code_codet5(query, stage_name) → code string
-
-Usage:
-  # Train (needs ~20 min on GPU, ~2 hrs on CPU for small model)
-  python models/finetune_codet5.py --train
-
-  # Inference only (uses saved model or TF-IDF fallback)
-  from models.finetune_codet5 import generate_codet5
-  code = generate_codet5("How do I fill missing values in Age?", "Preprocessing")
-"""
+"""Fine-tunes CodeT5-small on DS Mentor dataset for Python code generation."""
 import csv, os, json, argparse
 from pathlib import Path
 

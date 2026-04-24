@@ -1,16 +1,4 @@
-"""
-PART 4b — MULTI-TURN CONVERSATION MODULE (Member 4)
-====================================================
-Maintains conversation history, resolves pronouns/coreferences,
-and builds context-aware follow-up answers across turns.
-
-Features:
-  - Session memory: stores last N query-answer pairs
-  - Pronoun resolution: "it", "this", "that", "the model", "the data"
-  - Follow-up detection: recognizes continuation queries
-  - Context injection: enriches follow-up queries with prior context
-  - Entity tracking: remembers column names, models, datasets mentioned
-"""
+"""Multi-turn conversation manager with pronoun resolution, follow-up detection, and context injection."""
 import re
 from dataclasses import dataclass, field
 from typing import Optional

@@ -1,18 +1,4 @@
-"""
-PART 2 — RAG RETRIEVAL ENGINE
-==============================
-Hybrid retrieval: BM25 (keyword) + TF-IDF cosine (semantic) with re-ranking.
-This is the core novel contribution vs ChatGPT — retrieves grounded answers
-from the curated DS dataset rather than hallucinating.
-
-Architecture:
-  Query → [BM25 score] + [TF-IDF cosine score] → RRF fusion → Top-K results → Re-rank by stage
-
-Usage:
-    from modules.retrieval import DSRetriever
-    retriever = DSRetriever("data/dataset.csv")
-    results = retriever.retrieve("How do I handle missing values?", top_k=5)
-"""
+"""BM25 + TF-IDF hybrid retriever with RRF fusion and stage-aware re-ranking."""
 import csv
 import re
 import math

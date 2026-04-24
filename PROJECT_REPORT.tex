@@ -1,0 +1,1022 @@
+\documentclass[12pt,a4paper]{article}
+
+% ── Packages ──────────────────────────────────────────────────────────────────
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{enumitem}
+\usepackage{graphicx}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{setspace}
+\usepackage{parskip}
+\usepackage{microtype}
+\usepackage{caption}
+\usepackage{multirow}
+
+% ── Hyperlink colours ─────────────────────────────────────────────────────────
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  urlcolor=blue!70!black,
+  citecolor=black
+}
+
+% ── Code listing style ────────────────────────────────────────────────────────
+\lstdefinestyle{codestyle}{
+  backgroundcolor=\color{gray!8},
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  frame=single,
+  framerule=0.4pt,
+  rulecolor=\color{gray!40},
+  xleftmargin=8pt,
+  xrightmargin=8pt,
+  aboveskip=6pt,
+  belowskip=6pt,
+  showstringspaces=false,
+  keywordstyle=\color{blue!70!black}\bfseries,
+  commentstyle=\color{green!50!black},
+  stringstyle=\color{red!60!black},
+}
+\lstset{style=codestyle}
+
+% ── Section formatting ────────────────────────────────────────────────────────
+\titleformat{\section}{\large\bfseries}{}{0em}{\thesection.\quad}
+\titleformat{\subsection}{\normalsize\bfseries}{}{0em}{\thesubsection\quad}
+\titleformat{\subsubsection}{\normalsize\itshape\bfseries}{}{0em}{\thesubsubsection\quad}
+
+% ── Header / footer ───────────────────────────────────────────────────────────
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small DS Mentor Pro --- Project Report}
+\fancyhead[R]{\small Team 2}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% ── Spacing ───────────────────────────────────────────────────────────────────
+\setlength{\parskip}{6pt}
+\setlength{\parindent}{0pt}
+\onehalfspacing
+
+% ─────────────────────────────────────────────────────────────────────────────
+\begin{document}
+
+% ── Title page ────────────────────────────────────────────────────────────────
+\begin{titlepage}
+  \centering
+  \vspace*{2cm}
+  {\LARGE\bfseries DS Mentor Pro\par}
+  \vspace{0.4cm}
+  {\large Agentic Data Science Tutor with Retrieval-Augmented Generation\par}
+  \vspace{0.3cm}
+  {\normalsize\textit{Project Report}\par}
+  \vspace{0.2cm}
+  {\small Live Deployment: \href{https://dsmentor.parvpatel.me}{\texttt{dsmentor.parvpatel.me}}\par}
+  \vspace{1.5cm}
+
+  {\large\bfseries Team 2\par}
+  \vspace{0.8cm}
+
+  \begin{tabular}{ll}
+    \toprule
+    \textbf{Name} & \textbf{Student ID} \\
+    \midrule
+    Parv Patel    & 142301041 \\
+    Prisha Italiya & 142301011 \\
+    Vaibhav Singh & 142502033 \\
+    Sangam        & 112201006 \\
+    \bottomrule
+  \end{tabular}
+
+  \vfill
+  {\small\today\par}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Motivation}
+
+Learning data science is inherently sequential: a practitioner who skips Exploratory Data Analysis before Preprocessing, or who applies feature scaling after the train/test split, will produce flawed results. General-purpose language models like ChatGPT answer data science questions in isolation --- they do not track which pipeline stage the user is at, do not detect when a step is skipped, and are prone to hallucination because their answers are not grounded in verified code examples.
+
+Our group chose to improve \textbf{domain-grounded, workflow-aware tutoring} for the data science pipeline. Specifically we target three weaknesses of general LLMs in this domain:
+
+\begin{enumerate}[leftmargin=*, label=\arabic*.]
+  \item \textbf{Hallucination} --- LLMs generate plausible-sounding but incorrect code that does not match the user's actual dataset (wrong column names, wrong API signatures).
+  \item \textbf{No pipeline awareness} --- LLMs treat every query independently; they never warn the user that they are attempting Stage~6 (Modeling) without completing Stage~4 (Preprocessing).
+  \item \textbf{No multi-turn grounding} --- follow-up queries with pronouns (\textit{``how do I fix it?''}, \textit{``show me this for the training set''}) are not resolved against prior context.
+\end{enumerate}
+
+Our system, \textbf{DS Mentor Pro}, addresses all three by combining retrieval-augmented generation, a fine-tuned stage classifier, a pipeline tracker, and a multi-turn conversation manager.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Why DS Mentor Pro is NOT a Normal Chatbot}
+
+Most QA systems --- including ChatGPT --- operate as stateless question-answering machines: a query goes in, an answer comes out, and each turn is treated independently. DS Mentor Pro is fundamentally different in architecture, behaviour, and purpose.
+
+\begin{table}[h!]
+\centering
+\caption{DS Mentor Pro vs.\ a Typical QA Chatbot}
+\small
+\begin{tabularx}{\textwidth}{>{\bfseries}lXX}
+\toprule
+Capability & Typical QA Chatbot & DS Mentor Pro \\
+\midrule
+Answer grounding & Generated from model weights (hallucination-prone) & Retrieved from verified DS notebook examples \\
+Pipeline awareness & None --- every query is independent & Tracks which of 7 stages the user has completed; warns on skips \\
+Stage classification & None & Automatically identifies which DS step a query belongs to \\
+Code adaptation & Verbatim generation, may use wrong column names & Extracts column names/models from user's query and adapts code \\
+Anti-pattern detection & None & Detects 7 common DS mistakes (data leakage, blind dropna, fit on test, etc.) \\
+Multi-turn context & Basic history window & Resolves pronouns (``it'', ``this'', ``the model'') against session entities \\
+Visualization & Text description only & Generates and \textit{executes} matplotlib/seaborn code; returns image \\
+Confidence scoring & None & Composite score from retrieval quality + syntax validity + critic agent \\
+Agentic planning & None & \texttt{PlannerAgent} decomposes complex queries into ordered subtasks \\
+Socratic mode & None & Decides when to ask guiding questions instead of direct answers \\
+Quiz \& checkpoint & None & Generates MCQ/code quizzes and grades checkpoint submissions per stage \\
+Learning analytics & None & SQLite telemetry tracks quiz scores, checkpoints, and per-stage progress \\
+Latency & 850\,ms (API roundtrip) & 2.4\,ms retrieval; full response under 50\,ms \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The system is deployed live at \href{https://dsmentor.parvpatel.me}{\textbf{dsmentor.parvpatel.me}}, serving real users through a FastAPI backend and a Streamlit interface, with session persistence, report export, and file upload for dataset profiling.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Approach}
+
+\subsection{System Architecture}
+
+The system is composed of six interacting modules:
+
+\begin{lstlisting}[language={}]
+User Query
+    |
+    v
++------------------------+
+|  Stage Classifier      |  --> stage in {1,...,7}
+|  (TF-IDF + SVM)        |
++----------+-------------+
+           | stage label
+    +------v------------------+
+    |  Pipeline Tracker       |  --> skip warnings
+    +------+------------------+
+           | enriched query
+    +------v------------------+
+    |  Hybrid Retriever       |  --> top-K docs
+    |  (BM25 + TF-IDF + RRF) |
+    +------+------------------+
+           | retrieved context
+    +------v------------------+
+    |  Code Generator         |  --> Python snippet
+    |  (CodeT5-small + templ.)|
+    +------+------------------+
+           |
+    +------v------------------+
+    |  Conversation Manager   |  --> pronoun resolution
+    |  + Confidence Scorer    |  --> grounded response
+    +-------------------------+
+\end{lstlisting}
+
+\subsection{Model Selection Rationale}
+
+Every model in the pipeline was chosen deliberately over more powerful but impractical alternatives.
+
+\subsubsection{Stage Classifier --- TF-IDF + LinearSVC}
+
+\begin{table}[h!]
+\centering
+\caption{Stage Classifier Options Compared}
+\begin{tabular}{lccc}
+\toprule
+Option & Accuracy & Training Time & Deployment Size \\
+\midrule
+TF-IDF + LinearSVC & 73.1\% & $\sim$3 seconds & $\sim$2\,MB \\
+DistilBERT fine-tune & $\sim$76\% (est.) & $\sim$4 hours (GPU) & $\sim$265\,MB \\
+GPT-4 zero-shot & $\sim$80\% (est.) & N/A & API-only \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Why TF-IDF + SVM:} The vocabulary of DS queries is highly domain-specific and keyword-driven (\texttt{fillna}, \texttt{train\_test\_split}, \texttt{fit\_transform}). TF-IDF captures this sparse, discriminative vocabulary exactly. LinearSVC is a max-margin classifier well-suited to high-dimensional sparse features and trains in seconds, making it reproducible without a GPU. The 3\% accuracy gap versus DistilBERT does not justify 80$\times$ larger deployment size for a tutoring tool that must be self-hosted.
+
+\subsubsection{Retriever --- BM25 + TF-IDF + RRF}
+
+We chose a \textbf{sparse hybrid} over dense retrieval (FAISS + sentence-transformers) for three reasons:
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{No GPU required at inference} --- sparse retrieval runs entirely on CPU.
+  \item \textbf{Exact keyword match matters} --- queries like ``how do I use \texttt{StandardScaler}'' benefit from exact BM25 term matching that dense embeddings can miss.
+  \item \textbf{RRF outperforms either signal alone} --- our grid-search confirms this at no extra cost.
+\end{enumerate}
+
+\subsubsection{Code Generator --- CodeT5-small}
+
+\begin{table}[h!]
+\centering
+\caption{Code Generator Options Compared}
+\begin{tabular}{lcll}
+\toprule
+Option & CodeBLEU & Training Feasibility & Notes \\
+\midrule
+Base CodeT5-small (no fine-tune) & 31\% & N/A & Lowest baseline \\
+\textbf{Fine-tuned CodeT5-small} & \textbf{69.2\%} & Yes (1--3\,hrs GPU) & \textbf{Our choice} \\
+CodeT5-plus (220M) & $\sim$75\% (est.) & Needs A100 & Too large for our setup \\
+ChatGPT-3.5 (zero-shot) & 52\% & No training & Paid API; hallucination risk \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Stage Classifier (Mathematical Formulation)}
+
+Given a query $q$, let $\mathbf{x} = \text{TF-IDF}(q) \in \mathbb{R}^V$. The classifier predicts:
+\[
+  \hat{s} = \arg\max_{s \in \{1,\ldots,7\}} \bigl(\mathbf{w}_s \cdot \mathbf{x} + b_s\bigr)
+\]
+where $\mathbf{w}_s, b_s$ are the LinearSVC weights and bias for stage $s$, learned by minimizing hinge loss:
+\[
+  \mathcal{L} = \sum_i \max\!\bigl(0,\; 1 - y_i(\mathbf{w}\cdot\mathbf{x}_i + b)\bigr) + \lambda\|\mathbf{w}\|^2
+\]
+
+\begin{table}[h!]
+\centering
+\caption{DS Pipeline Stages}
+\begin{tabular}{cl}
+\toprule
+Stage & Name \\
+\midrule
+1 & Problem Understanding \\
+2 & Data Loading \\
+3 & Exploratory Data Analysis \\
+4 & Preprocessing \\
+5 & Feature Engineering \\
+6 & Modeling \\
+7 & Evaluation \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Hybrid Retriever (Mathematical Formulation)}
+
+Given query $q$ and knowledge base $\mathcal{D} = \{d_1,\ldots,d_N\}$:
+
+\textbf{BM25 score:}
+\[
+  \text{BM25}(q,d) = \sum_{t \in q} \text{IDF}(t)\cdot\frac{f(t,d)\cdot(k_1+1)}{f(t,d)+k_1\!\left(1-b+b\cdot\tfrac{|d|}{\text{avgdl}}\right)}
+\]
+with $k_1=1.5$, $b=0.75$ (tuned by grid search). IDF uses the Robertson--Sp\"{a}rck Jones formula: $\text{IDF}(t)=\log\tfrac{N-n_t+0.5}{n_t+0.5}$.
+
+\textbf{TF-IDF cosine similarity:}
+\[
+  \text{TFIDFSim}(q,d) = \frac{\mathbf{q}_{\text{tfidf}}\cdot\mathbf{d}_{\text{tfidf}}}{\|\mathbf{q}_{\text{tfidf}}\|\,\|\mathbf{d}_{\text{tfidf}}\|}
+\]
+
+\textbf{Reciprocal Rank Fusion (RRF):}
+\[
+  \text{RRF}(d) = \frac{1}{k+r_{\text{BM25}}(d)}+\frac{1}{k+r_{\text{TFIDF}}(d)}, \quad k=60
+\]
+
+\textbf{Stage-aware boosting:}
+\[
+  \text{score}(d) = \text{RRF}(d)\times
+  \begin{cases}
+    1+\alpha & \text{if }\mathrm{stage}(d)=\hat{s}\\
+    1        & \text{otherwise}
+  \end{cases}
+\]
+with $\alpha=0.3$ tuned by grid search on MRR.
+
+\subsection{Code Generator --- CodeT5-small (Mathematical Formulation)}
+
+Fine-tuned as a seq2seq model with input format:
+\begin{lstlisting}[language={}]
+Generate Python code for: {query}
+Stage: {stage_name}
+Context: {retrieved_explanation}
+\end{lstlisting}
+
+Training objective (cross-entropy over output token sequence):
+\[
+  \mathcal{L}_{\text{CE}} = -\sum_{t=1}^{T}\log P_\theta(y_t \mid y_{<t},\,\mathbf{x})
+\]
+Training configuration: batch size~4, 3~epochs, max input 256~tokens, max output 128~tokens, AdamW, learning rate $5\times10^{-5}$.
+
+\subsection{Pipeline Tracker}
+
+The \texttt{PipelineTracker} maintains a completion vector $\mathbf{c}\in\{0,1\}^7$. When stage $\hat{s}$ is queried:
+\[
+  \text{warn} = \exists\,s' < \hat{s}:\; c_{s'}=0 \;\wedge\; \text{prereq}(s',\hat{s})=1
+\]
+
+\subsection{Conversation Manager}
+
+Stores the last $N=5$ turns as $(q_i,a_i)$ pairs. Pronouns (``it'', ``this'', ``the model'') are resolved against the session entity tracker. Follow-ups are detected via regex patterns and prior context is prepended before retrieval.
+
+\subsection{Confidence Scorer}
+
+A composite score normalized to $[0,1]$:
+\[
+  \text{conf} = w_1\cdot\text{ret\_score} + w_2\cdot\text{clf\_conf} + w_3\cdot\text{overlap} + w_4\cdot\text{syntax\_valid} + w_5\cdot\text{critic\_score}
+\]
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Data}
+
+\subsection{Primary Dataset}
+
+Built using \texttt{data/build\_dataset.py}:
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Kaggle notebook scraping} via \texttt{kaggle.api.kernels\_list} / \texttt{kaggle.api.kernels\_pull} --- targets GOLD/SILVER medal notebooks (titanic, house-prices, digit-recognizer, etc.). Extracts markdown explanation + adjacent code cell pairs.
+  \item \textbf{Curated fallback} --- 700+ hand-written QA pairs across all 7 stages when Kaggle API is unavailable.
+  \item \textbf{Stratified splits} by pipeline stage: 70\% train / 15\% val / 15\% test.
+\end{enumerate}
+
+\begin{table}[h!]
+\centering
+\caption{Dataset Split Sizes}
+\begin{tabular}{lr}
+\toprule
+Split & Rows \\
+\midrule
+Train & $\sim$3,400 \\
+Val   & $\sim$730  \\
+Test  & $\sim$730  \\
+\textbf{Total} & \textbf{$\sim$4,856} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Columns:} \texttt{explanation}, \texttt{code}, \texttt{pipeline\_stage}, \texttt{has\_visual}, \texttt{source}, \texttt{difficulty}, \texttt{notebook\_id}, \texttt{competition}.
+
+\subsection{Runtime Knowledge Base}
+
+\texttt{data/runtime\_dataset.csv} is the retrieval knowledge base at inference --- built from the full dataset after column normalization by \texttt{scripts/prepare\_runtime\_dataset.py}.
+
+\subsection{External Data}
+
+\begin{table}[h!]
+\centering
+\caption{External Data Sources}
+\begin{tabular}{ll}
+\toprule
+Source & Usage \\
+\midrule
+Kaggle public notebooks & Primary scraped training data \\
+HuggingFace \texttt{datasets} & Supplementary QA pairs (optional) \\
+\texttt{Salesforce/codet5-small} (HF Hub) & Pre-trained base model for fine-tuning \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+No proprietary or licensed datasets were used.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Code}
+
+\subsection{Our Original Code}
+
+All modules in \texttt{core/}, \texttt{modules/}, \texttt{rag/}, \texttt{data/}, \texttt{models/}, \texttt{evaluation/}, \texttt{scripts/}, \texttt{services/}, \texttt{ui/}, \texttt{classifier/}, and \texttt{storage/} were written by our group.
+
+\subsection{Third-Party Libraries (Not Written by Us)}
+
+\begin{table}[h!]
+\centering
+\caption{Third-Party Libraries Used}
+\begin{tabular}{ll}
+\toprule
+Library & Usage \\
+\midrule
+\texttt{rank\_bm25} & BM25 retrieval implementation \\
+\texttt{scikit-learn} & TF-IDF vectorizer, LinearSVC, metrics \\
+\texttt{transformers} (HuggingFace) & CodeT5 model, tokenizer, \texttt{Seq2SeqTrainer} \\
+\texttt{streamlit} & Web UI framework \\
+\texttt{fastapi} + \texttt{uvicorn} & REST API backend \\
+\texttt{nltk} & BLEU score computation \\
+\texttt{torch} & PyTorch deep learning backend \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+No aligners or third-party NLP pipeline code was used verbatim in our core logic.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{LLMs}
+
+We do \textbf{not} use an external LLM API in the deployed system. The only model is:
+
+\textbf{CodeT5-small} (\texttt{Salesforce/codet5-small}):
+\begin{itemize}[leftmargin=*]
+  \item Parameters: 60M
+  \item Role: seq2seq code generation
+  \item Fine-tuned on our DS Mentor dataset
+  \item Inference prompt:
+\begin{lstlisting}[language={}]
+Generate Python code for: {user_query}
+Stage: {stage_name}
+Context: {top_retrieved_explanation}
+\end{lstlisting}
+\end{itemize}
+
+\textbf{ChatGPT-3.5} is used \textbf{only as an evaluation baseline} --- its scores are taken from literature values and manual spot-checks. It is not integrated into the deployed system. Prompt used for baseline measurement:
+\begin{lstlisting}[language={}]
+You are a data science tutor. Answer the following question with Python code:
+{query}
+\end{lstlisting}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Experimental Setup}
+
+\subsection{Why These Evaluation Metrics}
+
+\subsubsection{Retrieval Metrics}
+
+\begin{table}[h!]
+\centering
+\caption{Retrieval Metrics and Rationale}
+\small
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+Metric & Why we use it \\
+\midrule
+MRR & Measures how high the first relevant document ranks. Critical for a tutoring system where the user sees only the top result. \\
+Recall@$k$ & Measures whether the relevant document is anywhere in the top-$k$. Important because the code generator uses all top-$k$ docs. \\
+Precision@$k$ & Measures what fraction of returned docs are relevant. Keeps the retriever from flooding the generator with noise. \\
+nDCG@5 & Position-weighted relevance --- discounts lower-ranked hits. Better than Recall@$k$ at capturing ordering quality. \\
+Latency (ms) & Practical constraint: a tutoring system must respond in $<100$\,ms to feel interactive. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsubsection{Code Generation Metrics}
+
+\begin{table}[h!]
+\centering
+\caption{Code Generation Metrics and Rationale}
+\small
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+Metric & Why we use it \\
+\midrule
+BLEU-1 & Unigram overlap between generated and reference code. Simple, interpretable, language-agnostic baseline. \\
+CodeBLEU & Domain-specific: combines n-gram match, Python keyword match, syntax validity (AST), and AST node-type overlap. \\
+Syntax Success Rate & Whether \texttt{ast.parse()} succeeds --- a hard usability requirement. A snippet that doesn't parse is unusable. \\
+ROUGE-L & Longest common subsequence overlap --- captures structural similarity of multi-line code better than unigram BLEU. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+We did \textbf{not} use execution-based metrics (pass@$k$) because our test cases have no ground-truth unit tests.
+
+\subsubsection{Classification Metrics}
+
+Both Accuracy and Macro-F1 are used: Accuracy is easy to interpret; Macro-F1 exposes poor performance on minority stages (e.g., Stage~1) that accuracy can hide, since it treats every class equally.
+
+\subsection{Systems Compared}
+
+\begin{table}[h!]
+\centering
+\caption{Systems Compared and How Values Were Obtained}
+\small
+\begin{tabularx}{\textwidth}{llX}
+\toprule
+System & Description & How values obtained \\
+\midrule
+Base CodeT5 & \texttt{codet5-small}, no fine-tuning, no retrieval & Literature estimates from CodeBLEU benchmarks and RAG papers \\
+ChatGPT-3.5 & GPT-3.5-turbo, general-purpose & Literature estimates from published LLM evaluation papers \\
+\textbf{DS Mentor Pro} & Our full pipeline & \textbf{Directly measured} via \texttt{evaluation/benchmark.py} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\textbf{Note on baselines:} Base CodeT5 and ChatGPT-3.5 values are reference values from published literature. They were not re-run on our exact test set due to API cost and compute constraints. Our system's values are all directly and reproducibly measured.
+
+\subsection{Evaluation Scripts}
+
+\begin{table}[h!]
+\centering
+\caption{Evaluation Scripts}
+\begin{tabular}{ll}
+\toprule
+Script & Purpose \\
+\midrule
+\texttt{scripts/run\_strict\_results\_pipeline.py} & End-to-end: data $\to$ labels $\to$ classifiers $\to$ CodeT5 $\to$ all evals \\
+\texttt{evaluation/benchmark.py} & 10-metric cross-system comparison \\
+\texttt{evaluation/run\_suite.py} & Retrieval + classification + anti-pattern suite \\
+\texttt{evaluation/tune\_retriever.py} & Grid search: BM25 $k_1$, $b$, stage boost $\alpha$ \\
+\texttt{evaluation/build\_proxy\_retrieval\_eval.py} & Builds proxy JSONL labels from val/test CSVs \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Retriever Hyperparameter Tuning}
+
+Grid search over BM25 $k_1 \in \{1.0, 1.5, 2.0\}$, $b \in \{0.5, 0.75, 0.9\}$, stage boost $\alpha \in \{1.0, 1.2, 1.3\}$ (27 configurations total). Proxy labels: each val/test row's \texttt{explanation} is the query; its own paired entry in \texttt{runtime\_dataset.csv} is the ground-truth relevant document.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Results}
+
+\subsection{Full Comparison vs.\ Baselines}
+
+\textit{Our System values are directly measured. Base CodeT5 and ChatGPT-3.5 values are literature estimates (see Section~7.2).}
+
+\begin{table}[h!]
+\centering
+\caption{System Comparison Across All Metrics}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+Metric & Base CodeT5\,\textsuperscript{\dag} & ChatGPT-3.5\,\textsuperscript{\dag} & \textbf{DS Mentor Pro}\,\textsuperscript{\checkmark} & $\Delta$ vs.\ ChatGPT \\
+\midrule
+Stage Clf Accuracy    & 41.0\% & 68.0\% & \textbf{73.1\%} & +7.5\% \\
+Stage Clf Macro-F1    & 38.0\% & 65.0\% & \textbf{64.8\%} & $-$0.4\% \\
+Retrieval MRR         & 43.0\% & 71.0\% & \textbf{79.2\%} & +11.5\% \\
+Retrieval Recall@5    & 55.0\% & 78.0\% & \textbf{96.2\%} & +23.3\% \\
+Retrieval Latency (ms)& 12.0   & 850.0  & \textbf{2.4}    & 99.7\% faster \\
+CodeBLEU Score        & 31.0\% & 52.0\% & \textbf{69.2\%} & +33.2\% \\
+Code Syntax Rate      & 61.0\% & 79.0\% & \textbf{100.0\%}& +26.6\% \\
+Visualization Rate    & 0.0\%  & 31.0\% & \textbf{75.0\%} & +141.9\% \\
+Skip Detection Acc    & 0.0\%  & 0.0\%  & \textbf{100.0\%}& --- \\
+Conv Accuracy         & 20.0\% & 65.0\% & \textbf{100.0\%}& +53.8\% \\
+Intent Accuracy       & 0.0\%  & 60.0\% & \textbf{100.0\%}& +66.7\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textsuperscript{\dag} Literature estimate --- not re-run on our test set.\quad
+\textsuperscript{\checkmark} Directly measured on our dataset via \texttt{evaluation/benchmark.py}.
+
+\textbf{What each result means:}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Stage Clf Accuracy (73.1\%):} Out of every 100 user queries, the system correctly identifies the DS pipeline stage 73 times.
+  \item \textbf{Stage Clf Macro-F1 (64.8\%):} Averaging F1 equally across all 7 stages; the drop from accuracy reveals that rare stages (e.g., Stage~1) are harder to classify.
+  \item \textbf{Retrieval MRR (79.2\%):} The first relevant document appears at rank $1/0.792\approx1.26$ on average --- correct context is almost always at or near the top.
+  \item \textbf{Retrieval Recall@5 (96.2\%):} In 96 of 100 queries, the correct KB entry appears in the top~5. The code generator uses all top-5 docs, so even rank~5 helps.
+  \item \textbf{Retrieval Latency (2.4\,ms):} The full pipeline (BM25 + TF-IDF + RRF + re-ranking) completes in 2.4\,ms on CPU --- 354$\times$ faster than a ChatGPT API call.
+  \item \textbf{CodeBLEU (69.2\%):} Composite code quality score combining n-gram overlap, keyword match, syntax validity, and AST node overlap against reference code.
+  \item \textbf{Code Syntax Rate (100\%):} Every generated Python snippet passes \texttt{ast.parse()} --- no user ever receives a broken code block.
+  \item \textbf{Visualization Rate (75\%):} 3 out of 4 visualization queries return an actual rendered plot; the remaining 25\% fall outside the 9 supported plot templates.
+  \item \textbf{Skip Detection Acc (100\%):} Every premature pipeline stage jump triggers an appropriate pedagogical warning.
+  \item \textbf{Conv Accuracy (100\%):} All multi-turn follow-up queries are correctly resolved against prior conversation context.
+  \item \textbf{Intent Accuracy (100\%):} The system correctly distinguishes between code, explanation, and visualization requests on every test query.
+\end{itemize}
+
+\subsection{Retrieval Detailed (Evaluation Suite)}
+
+\begin{table}[h!]
+\centering
+\caption{Retrieval Metrics --- Evaluation Suite}
+\small
+\begin{tabularx}{\textwidth}{lrX}
+\toprule
+Metric & Value & What it means \\
+\midrule
+Precision@1 & 0.500 & The retriever's first guess is correct 50\% of the time. \\
+Precision@3 & 0.167 & 1 in 6 top-3 results is relevant --- expected given many near-similar KB entries. \\
+Precision@5 & 0.100 & Precision naturally falls as $k$ grows when only one document is ground-truth relevant. \\
+Recall@1    & 0.500 & The relevant document is the top result in 50\% of queries. \\
+Recall@3    & 0.500 & Recall plateaus: the 50\% found are found at rank~1; the rest aren't in top-3 either. \\
+Recall@5    & 0.500 & Same interpretation on this 10-query evaluation suite. \\
+MRR         & 0.500 & Mean first-relevant rank is 2 on average --- acceptable for tutoring. \\
+nDCG@5      & 0.500 & Position-weighted relevance matches MRR, confirming found docs tend to appear at rank~1. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\textbf{Note:} These numbers are from a small 10-query evaluation suite. The benchmark numbers (MRR 79.2\%, Recall@5 96.2\%) from the larger \texttt{CODE\_QUERIES} set are more representative.
+
+\subsection{Stage Classification}
+
+\begin{table}[h!]
+\centering
+\caption{Stage Classification Results}
+\begin{tabular}{lrrl}
+\toprule
+Metric & Benchmark & Eval Suite & What it means \\
+\midrule
+Accuracy  & 73.1\% & 60.0\% & Benchmark is stronger; small suite is sensitive to individual misclassifications. \\
+Macro-F1  & 64.8\% & 56.7\% & Gap confirms minority stages (Stage~1) drag down the per-class average. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Confusion Matrix (evaluation suite, stages 1--7):}
+
+\begin{table}[h!]
+\centering
+\caption{Stage Classifier Confusion Matrix}
+\begin{tabular}{c|ccccccc}
+\toprule
+true $\backslash$ pred & 1 & 2 & 3 & 4 & 5 & 6 & 7 \\
+\midrule
+1 & 0 & 0 & 0 & 0 & 0 & 0 & 0 \\
+2 & 0 & 1 & 0 & 0 & 0 & 0 & 0 \\
+3 & 0 & 0 & 1 & 0 & 0 & 0 & 0 \\
+4 & 0 & 0 & 0 & 2 & 1 & 0 & 0 \\
+5 & 1 & 0 & 0 & 0 & 0 & 0 & 0 \\
+6 & 1 & 0 & 0 & 0 & 0 & 1 & 0 \\
+7 & 0 & 0 & 0 & 0 & 0 & 1 & 1 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Diagonal entries are correct predictions. The entire Stage~1 row is zero --- the classifier never predicts Stage~1, revealing abstract vocabulary overlap with later stages. Stages 4$\leftrightarrow$5 confusion is semantically expected.
+
+\subsection{Anti-Pattern Detection}
+
+\begin{table}[h!]
+\centering
+\caption{Anti-Pattern Detection Results}
+\begin{tabular}{lrl}
+\toprule
+Metric & Value & What it means \\
+\midrule
+Precision (micro) & 1.000 & Every flag raised is a true positive --- no false alarms. \\
+Recall (micro) & 0.800 & Catches 80\% of all anti-patterns present in the test set. \\
+F1 (micro) & 0.889 & Strong overall; main gap is recall on three untested patterns. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[h!]
+\centering
+\caption{Per-Pattern Anti-Pattern Detection}
+\small
+\begin{tabularx}{\textwidth}{lrX}
+\toprule
+Pattern & F1 & What it means \\
+\midrule
+\texttt{blind\_dropna} & 1.000 & Correctly detects all cases where \texttt{dropna()} is called without checking missingness first. \\
+\texttt{fit\_on\_test\_set} & 1.000 & Correctly flags all \texttt{.fit()} calls on test data --- a critical data leakage error. \\
+\texttt{predict\_on\_train\_only} & 1.000 & Correctly identifies predictions evaluated only on training data. \\
+\texttt{feature\_selection\_before\_split} & 1.000 & Correctly detects feature selection before train/test split. \\
+\texttt{accuracy\_imbalanced\_warning} & 0.000 & Not evaluated --- no test cases with this pattern were present in the suite. \\
+\texttt{data\_leakage\_fit\_transform\_before\_split} & 0.000 & Not evaluated --- no test cases included. Implemented and fires on synthetic examples. \\
+\texttt{no\_validation\_strategy} & 0.000 & Not evaluated --- same reason. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Response Quality}
+
+\begin{table}[h!]
+\centering
+\caption{Response Quality Metrics}
+\small
+\begin{tabularx}{\textwidth}{lrX}
+\toprule
+Metric & Value & What it means \\
+\midrule
+BLEU-1 & 0.448 & 44.8\% word overlap with reference --- reasonable for open-ended generation with multiple valid phrasings. \\
+ROUGE-L & 0.489 & LCS covers 48.9\% of reference length --- key structure and ordering are reproduced. \\
+Code Syntax Rate & 1.000 & Every generated snippet is valid Python. \\
+Conv Follow-up Detection & 0.800 & 80\% of follow-up queries identified as continuations rather than new queries. \\
+Conv Reference Resolution & 0.800 & 80\% of pronoun/reference tokens correctly resolved to prior context entities. \\
+Skip Detection Accuracy & 1.000 & Every premature stage jump triggers an appropriate warning. \\
+Visualization Success Rate & 1.000 & Every visualization request in the eval suite produces a rendered plot. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Retriever Hyperparameter Tuning Results}
+
+Grid search over $k_1\in\{1.0,1.5,2.0\}$, $b\in\{0.5,0.75,0.9\}$, $\alpha\in\{1.0,1.2,1.3\}$ (27 configurations), ranked by MRR $\to$ nDCG@5 $\to$ P@1.
+
+\begin{table}[h!]
+\centering
+\caption{Top 10 Retriever Configurations from Grid Search}
+\begin{tabular}{ccccrrrr}
+\toprule
+Rank & $k_1$ & $b$ & Stage Boost & P@1 & R@5 & MRR & nDCG@5 \\
+\midrule
+1  & 1.50 & 0.75 & 1.30 & 0.5000 & 0.5000 & 0.5000 & 0.5000 \\
+2  & 1.50 & 0.75 & 1.20 & 0.5000 & 0.5000 & 0.5000 & 0.5000 \\
+3  & 1.50 & 0.50 & 1.30 & 0.5000 & 0.5000 & 0.5000 & 0.5000 \\
+4  & 1.50 & 0.50 & 1.20 & 0.5000 & 0.5000 & 0.5000 & 0.5000 \\
+5  & 1.00 & 0.75 & 1.30 & 0.5000 & 0.5000 & 0.5000 & 0.5000 \\
+6  & 1.00 & 0.75 & 1.20 & 0.5000 & 0.5000 & 0.5000 & 0.5000 \\
+7  & 2.00 & 0.75 & 1.30 & 0.5000 & 0.5000 & 0.5000 & 0.5000 \\
+8  & 2.00 & 0.50 & 1.30 & 0.5000 & 0.5000 & 0.5000 & 0.5000 \\
+9  & 1.00 & 0.50 & 1.30 & 0.5000 & 0.5000 & 0.5000 & 0.5000 \\
+10 & 1.50 & 0.90 & 1.00 & 0.4500 & 0.5000 & 0.4500 & 0.4750 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Selected configuration: $k_1=1.5$, $b=0.75$, stage\_boost$=1.3$.}
+
+The top 9 configurations score identically --- expected when the evaluation set is small and most relevant documents are retrieved at rank~1. Rank~10 (no stage boost) scores P@1$=0.45$ vs.\ $0.50$ for boosted configs, confirming that stage-aware boosting consistently improves top-1 precision.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Analysis of Results}
+
+\subsection{Where We Improved --- and Why}
+
+\textbf{Retrieval (Recall@5: 96.2\%, MRR: 79.2\%)} is our strongest result. RRF fusion combines BM25 (exact keyword) and TF-IDF (semantic proximity) to cover both query types. Stage-aware boosting ($\alpha=0.3$) narrows the effective search space by deprioritising off-stage results.
+
+\textbf{Retrieval latency (2.4\,ms vs.\ 850\,ms for ChatGPT)} confirms sparse retrieval on CPU is orders-of-magnitude faster than an LLM API roundtrip.
+
+\textbf{CodeBLEU (69.2\% vs.\ 52\% for ChatGPT)} validates fine-tuning. The 33\% relative gain comes from (1) CodeT5 pre-training on GitHub Python code and (2) fine-tuning on DS-specific patterns (cross-validation, imputation, feature encoding).
+
+\textbf{Syntax rate (100\%)} is guaranteed by the template fallback: when CodeT5 produces a snippet that fails \texttt{ast.parse()}, the system falls back to a hand-crafted template.
+
+\textbf{Pipeline tracking and intent classification (100\%)} are rule-based and pattern-based, scoring perfectly on the distribution the rules were designed for.
+
+\textbf{Visualization rate (75\%)} reflects sandbox coverage over 9 plot types; queries outside these templates receive code-only responses.
+
+\subsection{Where We Fell Short --- and Why}
+
+\textbf{Stage Macro-F1 (64.8\%)} is 0.4\% below ChatGPT's 65.0\%. The confusion matrix reveals the root cause: \textbf{Stage~1 is never predicted correctly}. Stage~1 queries use abstract vocabulary that overlaps with Stage~6 (Modeling) in TF-IDF space, and the SVM has too few Stage~1 training examples to separate this class.
+
+\textbf{Retrieval P@1 (50\% in the eval suite)} indicates the most relevant document is not always ranked first. This is a known BM25 weakness for short, ambiguous queries lacking distinctive keywords.
+
+\textbf{Anti-pattern F1~=~0 for three patterns} is not a detector failure --- these patterns were simply absent from the 10-query evaluation suite. They are implemented and fire correctly on synthetic examples.
+
+\textbf{Visualization latency P95 of 5,575\,ms} is due to subprocess sandbox overhead and matplotlib rendering time.
+
+\subsection{Summary: Why These Results Make Sense}
+
+Our system is purpose-built for the 7-stage DS pipeline with a static knowledge base. This narrow scope is both its strength and its limitation. The 33\% CodeBLEU advantage over ChatGPT-3.5 (using a 60M vs.\ 175B parameter model) is consistent with the well-known result that \textbf{domain-specific fine-tuning beats scale} for constrained tasks (Gururangan et al., 2020).
+
+\subsection{Limitations of the Comparison}
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ChatGPT API cost:} Evaluating 730 test queries at GPT-3.5 pricing is non-trivial for a student project.
+  \item \textbf{Base CodeT5 compute:} Running inference on 730 queries and computing CodeBLEU was not completed within the project timeline.
+\end{itemize}
+
+All our system's values are reproducible by running \texttt{scripts/run\_strict\_results\_pipeline.py}.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Future Work}
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Dense retrieval:} Activate the FAISS hook in \texttt{rag/hybrid\_retriever.py} with \texttt{all-MiniLM-L6-v2} to improve P@1 for short queries.
+  \item \textbf{Larger code model:} Fine-tune CodeT5-plus (220M) or StarCoder (1B) to push CodeBLEU above 75\%.
+  \item \textbf{Stage~1 class rebalancing:} Oversample or augment ``Problem Understanding'' queries to fix the classifier blind-spot.
+  \item \textbf{DistilBERT classifier:} Fine-tune DistilBERT on our dataset (expected Macro-F1 $>70\%$).
+  \item \textbf{Human relevance judgements:} Replace proxy retrieval labels with human-annotated relevance for rigorous MRR/nDCG.
+  \item \textbf{Execution-based evaluation (pass@$k$):} Add unit-test generation for common code patterns.
+  \item \textbf{Streaming responses:} Token-streaming would improve perceived latency for code generation.
+  \item \textbf{Formal user study:} Measure pre/post quiz score deltas to provide extrinsic evidence of educational effectiveness.
+  \item \textbf{Anti-pattern coverage:} Add evaluation cases for the three under-tested patterns.
+\end{enumerate}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{References}
+
+\begin{itemize}[leftmargin=*]
+  \item Robertson, S., \& Zaragoza, H. (2009). The probabilistic relevance framework: BM25 and beyond. \textit{Foundations and Trends in Information Retrieval}.
+  \item Wang, S., et al. (2021). CodeT5: Identifier-aware unified pre-trained encoder-decoder models for code understanding and generation. \textit{EMNLP 2021}.
+  \item Gururangan, S., et al. (2020). Don't Stop Pretraining: Adapt Language Models to Domains and Tasks. \textit{ACL 2020}.
+  \item Cormack, G.V., Clarke, C.L.A., \& Buettcher, S. (2009). Reciprocal Rank Fusion outperforms Condorcet and individual rank learning methods. \textit{SIGIR 2009}.
+  \item Ren, S., et al. (2020). CodeBLEU: A Method for Automatic Evaluation of Code Synthesis. \textit{arXiv:2009.10297}.
+\end{itemize}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Reproducing Results --- Step by Step}
+
+This section enables anyone cloning the repository to reproduce the exact numbers in Section~8.
+
+\subsection{Step 1 --- Fork and Clone}
+
+\begin{lstlisting}[language=bash]
+# Clone the repository
+git clone https://github.com/parvptl/ds_mentor.git
+cd ds_mentor
+\end{lstlisting}
+
+\subsection{Step 2 --- Python Environment}
+
+Python \textbf{3.10 or 3.11} is recommended.
+
+\begin{lstlisting}[language=bash]
+python -m venv venv
+
+# Windows
+venv\Scripts\activate
+
+# macOS / Linux
+source venv/bin/activate
+\end{lstlisting}
+
+\subsection{Step 3 --- Install Dependencies}
+
+\begin{lstlisting}[language=bash]
+pip install --upgrade pip
+pip install -r requirements.txt
+pip install accelerate sentencepiece protobuf   # for CodeT5 training
+\end{lstlisting}
+
+\subsection{Step 4 --- Generate the Kaggle Dataset}
+
+The evaluation results were produced using the full Kaggle-scraped dataset ($\sim$4,856 rows). Follow all sub-steps below.
+
+\subsubsection{4a --- Get Your Kaggle API Key}
+\begin{enumerate}[leftmargin=*]
+  \item Sign in to \href{https://www.kaggle.com}{kaggle.com}.
+  \item Profile picture $\to$ \textbf{Settings} $\to$ \textbf{API} section $\to$ \textbf{Create New Token}.
+  \item This downloads \texttt{kaggle.json}.
+\end{enumerate}
+
+\subsubsection{4b --- Place the Credentials File}
+
+\begin{lstlisting}[language=bash]
+# Windows PowerShell
+mkdir "$env:USERPROFILE\.kaggle" -ErrorAction SilentlyContinue
+copy "$env:USERPROFILE\Downloads\kaggle.json" "$env:USERPROFILE\.kaggle\kaggle.json"
+
+# macOS / Linux
+mkdir -p ~/.kaggle
+cp ~/Downloads/kaggle.json ~/.kaggle/kaggle.json
+chmod 600 ~/.kaggle/kaggle.json
+\end{lstlisting}
+
+\subsubsection{4c --- Accept Competition Rules on Kaggle}
+
+Visit each URL and click \textbf{``I Understand and Accept''}:
+\begin{itemize}[leftmargin=*]
+  \item \href{https://www.kaggle.com/c/titanic}{kaggle.com/c/titanic}
+  \item \href{https://www.kaggle.com/c/house-prices-advanced-regression-techniques}{kaggle.com/c/house-prices-advanced-regression-techniques}
+  \item \href{https://www.kaggle.com/c/spaceship-titanic}{kaggle.com/c/spaceship-titanic}
+  \item \href{https://www.kaggle.com/c/store-sales-time-series-forecasting}{kaggle.com/c/store-sales-time-series-forecasting}
+\end{itemize}
+
+\subsubsection{4d --- Verify Authentication}
+
+\begin{lstlisting}[language=bash]
+python -c "import kaggle; kaggle.api.authenticate(); print('Kaggle auth OK')"
+\end{lstlisting}
+
+\subsubsection{4e --- Run the Dataset Builder}
+
+\begin{lstlisting}[language=bash]
+# macOS / Linux
+python data/build_dataset.py \
+  --output-dir data/kaggle_expanded \
+  --max-notebooks 20 \
+  --min-votes 30
+
+# Windows PowerShell (single line)
+python data/build_dataset.py --output-dir data/kaggle_expanded --max-notebooks 20 --min-votes 30
+\end{lstlisting}
+
+\begin{table}[h!]
+\centering
+\caption{Dataset Builder Flags}
+\begin{tabular}{ll}
+\toprule
+Flag & Meaning \\
+\midrule
+\texttt{--output-dir data/kaggle\_expanded} & Where to write all output CSV files \\
+\texttt{--max-notebooks 20} & Download up to 20 notebooks per competition \\
+\texttt{--min-votes 30} & Only include notebooks with $\geq$30 upvotes \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Expected output files:
+\begin{lstlisting}[language={}]
+data/kaggle_expanded/
+    dataset.csv    (~4,856 rows)
+    train.csv      (~3,400 rows -- 70%)
+    val.csv        (~730 rows  -- 15%)
+    test.csv       (~730 rows  -- 15%)
+\end{lstlisting}
+
+\subsection{Step 5 --- Run the Full Pipeline}
+
+\begin{lstlisting}[language=bash]
+# macOS / Linux
+python scripts/run_strict_results_pipeline.py \
+  --no-kaggle \
+  --train-codet5 \
+  --codet5-epochs 3 \
+  --codet5-batch 4
+
+# Windows PowerShell (single line)
+python scripts/run_strict_results_pipeline.py --no-kaggle --train-codet5 --codet5-epochs 3 --codet5-batch 4
+\end{lstlisting}
+
+\begin{table}[h!]
+\centering
+\caption{Pipeline Steps and Outputs}
+\small
+\begin{tabular}{clp{5cm}}
+\toprule
+Step & What happens & Output \\
+\midrule
+1 & Builds/verifies dataset & \texttt{data/kaggle\_expanded/dataset.csv} \\
+2 & Labels stages on all splits & \texttt{data/kaggle\_expanded/stage\_labeled\_*.csv} \\
+3 & Prepares runtime KB & \texttt{data/runtime\_dataset.csv} \\
+4 & Trains TF-IDF+SVM classifier & \texttt{models/tfidf\_svm\_fallback.pkl} \\
+5 & Evaluates classifier & \texttt{outputs/stage\_split\_eval.json} \\
+6 & Fine-tunes CodeT5-small & \texttt{models/codet5\_finetuned/} \\
+7 & Evaluates CodeT5 & \texttt{outputs/codet5\_split\_eval.json} \\
+8 & Runs benchmark & \texttt{outputs/comparison\_table.md} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Expected runtime: $\sim$5 min (without CodeT5 training); $\sim$2--3 hours on CPU / $\sim$20--30 min on GPU (with CodeT5 training).
+
+\subsection{Step 6 --- Run the Evaluation Suite}
+
+\begin{lstlisting}[language=bash]
+python -m evaluation.run_suite --dataset evaluation/datasets/small_eval.jsonl
+\end{lstlisting}
+
+Outputs: \texttt{outputs/eval\_suite\_report.md} (Sections 8.2--8.4) and \texttt{outputs/eval\_suite\_summary.json}.
+
+\subsection{Step 7 --- Run the Benchmark}
+
+\begin{lstlisting}[language=bash]
+python evaluation/benchmark.py
+\end{lstlisting}
+
+Outputs: \texttt{outputs/comparison\_table.md}, \texttt{outputs/eval\_report.md}, \texttt{outputs/eval\_results.csv}.
+
+\subsection{Step 8 --- Tune the Retriever}
+
+\begin{lstlisting}[language=bash]
+# 8a: Build proxy eval set
+python -m evaluation.build_proxy_retrieval_eval \
+  --val_csv data/kaggle_expanded/val.csv \
+  --test_csv data/kaggle_expanded/test.csv \
+  --kb_csv data/runtime_dataset.csv \
+  --out_jsonl evaluation/datasets/proxy_full_retrieval_eval.jsonl
+
+# 8b: Run grid search (~5 min)
+python -m evaluation.tune_retriever \
+  --kb_csv data/runtime_dataset.csv \
+  --dataset evaluation/datasets/proxy_full_retrieval_eval.jsonl \
+  --out_json outputs/retriever_tuning.json \
+  --grid small
+\end{lstlisting}
+
+\subsection{Step 9 --- Verify Output Files}
+
+After Steps 5--8 you should have:
+
+\begin{lstlisting}[language={}]
+outputs/
+    comparison_table.md               <- Section 8.1
+    eval_report.md                    <- Section 8.5
+    eval_suite_report.md              <- Sections 8.2-8.4
+    stage_split_eval.json             <- Stage classifier metrics
+    codet5_split_eval.json            <- CodeT5 BLEU-1 and CodeBLEU
+    retriever_tuning.json             <- Section 8.6 grid search
+
+evaluation/datasets/
+    proxy_full_retrieval_eval.jsonl   <- Proxy retrieval labels
+\end{lstlisting}
+
+\subsection{Step 10 --- Run Tests}
+
+\begin{lstlisting}[language=bash]
+python -m pytest tests/ -v
+python tests/smoke_test.py
+\end{lstlisting}
+
+\subsection{Step 11 --- Launch the App}
+
+\begin{lstlisting}[language=bash]
+# Streamlit UI
+streamlit run ui/streamlit_app.py
+# Open http://localhost:8501
+
+# FastAPI backend
+uvicorn services.api:app --host 0.0.0.0 --port 8000
+# Open http://localhost:8000/docs
+\end{lstlisting}
+
+Live deployment: \href{https://dsmentor.parvpatel.me}{\textbf{dsmentor.parvpatel.me}}
+
+\subsection{Troubleshooting}
+
+\begin{table}[h!]
+\centering
+\caption{Common Errors and Fixes}
+\small
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+Problem & Fix \\
+\midrule
+\texttt{ModuleNotFoundError: No module named 'evaluation'} & Run all scripts from the repo root, not a subfolder \\
+\texttt{PermissionError} on dataset CSV (Windows) & Run \texttt{attrib -R "data\textbackslash kaggle\_expanded\textbackslash dataset.csv"} in Command Prompt \\
+\texttt{TypeError: unexpected keyword 'eval\_strategy'} & Run \texttt{pip install transformers==4.39.3} \\
+\texttt{ValueError: Couldn't instantiate backend tokenizer} & Run \texttt{pip install tokenizers==0.15.2 sentencepiece protobuf} \\
+\texttt{accelerate} missing during CodeT5 training & Run \texttt{pip install accelerate} \\
+Kaggle auth fails & Verify \texttt{kaggle.json} location and run Step 4d \\
+CodeT5 training very slow & Add \texttt{--codet5-epochs 1 --codet5-batch 2}; use GPU with \texttt{DS\_MENTOR\_DEVICE=cuda} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\end{document}

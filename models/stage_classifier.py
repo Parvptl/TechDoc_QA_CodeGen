@@ -1,9 +1,4 @@
-"""
-PART 3 — STAGE CLASSIFIER
-Fine-tunes DistilBERT on stage_labeled_dataset.csv.
-Fallback: TF-IDF + LinearSVC (works without GPU, trains in seconds).
-Provides predict_stage(query) → "Stage N — Name"
-"""
+"""Stage classifier: TF-IDF + LinearSVC (fallback: DistilBERT). Predicts DS pipeline stage 1-7."""
 import csv, os, json, pickle
 from pathlib import Path
 

@@ -1,7 +1,4 @@
-"""
-PART 2b — PIPELINE STAGE LABELING
-Reads dataset.csv → applies keyword rules + TF-IDF ensemble → outputs stage_labeled_dataset.csv
-"""
+"""Applies keyword rules + TF-IDF ensemble to label dataset.csv rows with DS pipeline stages."""
 import csv, re
 from pathlib import Path
 

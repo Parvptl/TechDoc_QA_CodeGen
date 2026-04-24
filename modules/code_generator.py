@@ -1,16 +1,4 @@
-"""
-PART 3b — CODE GENERATION MODULE (Member 3)
-============================================
-Generates context-aware Python code for data science tasks.
-Architecture:
-  1. Template-based generation (fast, always works)
-  2. RAG-augmented generation (retrieves and adapts closest code)
-  3. DistilBERT/CodeT5 fine-tuning path (optional, needs GPU)
-
-This module is the primary code generation component —
-the RAG retriever returns verbatim code, but this module
-ADAPTS it based on user context (column names, model choices, etc.)
-"""
+"""Template and RAG-augmented Python code generation for data science tasks."""
 import re
 from typing import Optional
 

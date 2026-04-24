@@ -1,9 +1,4 @@
-"""
-PART 1 — DATASET CREATION
-Builds 500+ labeled QA pairs across all 7 DS pipeline stages.
-Tries Kaggle API and HuggingFace first; falls back to curated set.
-Output: data/dataset.csv  (columns: explanation, code, pipeline_stage, source, difficulty)
-"""
+"""Builds labeled QA pairs across all 7 DS pipeline stages with Kaggle/HuggingFace/curated fallbacks."""
 import csv, json, re, random
 from pathlib import Path
 random.seed(42)

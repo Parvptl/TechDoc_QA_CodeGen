@@ -1,8 +1,4 @@
-"""
-PART 5 — WORKFLOW GUIDANCE SYSTEM
-Tracks completed pipeline stages, detects skips, and produces mentor warnings.
-Depends on: stage_classifier.predict_stage() (from Part 3)
-"""
+"""Tracks completed DS pipeline stages, detects skips, and produces mentor guidance warnings."""
 
 from dataclasses import dataclass, field
 from typing import Optional

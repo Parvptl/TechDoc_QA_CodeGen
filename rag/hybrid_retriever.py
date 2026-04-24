@@ -1,22 +1,4 @@
-"""
-PART 3 — RAG RETRIEVAL SYSTEM (Member 2)
-=========================================
-Hybrid retrieval combining three signals:
-  1. BM25 sparse retrieval   (keyword exact match)
-  2. TF-IDF cosine similarity (lightweight semantic)
-  3. FAISS dense retrieval    (sentence embeddings, if available)
-
-All three are fused via Reciprocal Rank Fusion (RRF).
-Stage-aware re-ranking boosts results matching the classified stage.
-
-Functions:
-  retrieve_context(query, top_k, stage)  → list of result dicts
-
-Usage:
-    from rag.hybrid_retriever import HybridRetriever
-    retriever = HybridRetriever("data/dataset.csv")
-    results = retriever.retrieve_context("How do I handle missing values?", top_k=5)
-"""
+"""Hybrid retriever: BM25 + TF-IDF + optional FAISS fused via RRF with stage-aware re-ranking."""
 
 import csv
 import re

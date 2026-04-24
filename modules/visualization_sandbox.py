@@ -1,16 +1,4 @@
-"""
-PART 6 — MULTI-MODAL VISUALIZATION SYSTEM (Member 4)
-======================================================
-Generates and executes matplotlib/seaborn code in a safe subprocess sandbox.
-Triggered when intent == "visualization" OR stage == 3 (EDA).
-
-Safety: subprocess isolation with timeout, no exec() in main process.
-
-Functions:
-    execute_visual_code(code)          -> {success, image_b64, error, execution_time_ms}
-    generate_and_execute(query, stage) -> {success, image_b64, code, error}
-    handle_eda_query(query)            -> alias for backward compatibility
-"""
+"""Safe subprocess sandbox for generating and executing matplotlib/seaborn visualization code."""
 
 import re, sys, base64, tempfile, subprocess, time
 from pathlib import Path

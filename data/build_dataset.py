@@ -1,20 +1,4 @@
-"""
-PART 1 — LARGE-SCALE DATASET CREATION (Member 1)
-==================================================
-Downloads GOLD + SILVER medal notebooks from Kaggle competitions.
-Extracts markdown + code cell pairs with stage labels and visual flags.
-Falls back to curated 700+ dataset if Kaggle API unavailable.
-
-Output files:
-  data/dataset.csv                  — full dataset (train + val + test)
-  data/small_sample_dataset.csv     — 20-row sample for quick testing
-  data/train.csv                    — 70% split
-  data/val.csv                      — 15% split
-  data/test.csv                     — 15% split
-
-Columns: explanation | code | pipeline_stage | has_visual | source |
-         difficulty  | notebook_id | competition
-"""
+"""Builds the DS Mentor dataset from Kaggle notebooks; falls back to curated data. Produces train/val/test splits."""
 
 import csv
 import json

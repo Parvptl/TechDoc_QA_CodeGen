@@ -1,7 +1,4 @@
-"""
-DS MENTOR QA SYSTEM — COMPLETE APP
-Member 1: 700+ dataset | Member 2: Hybrid RAG | Member 3: Code Gen | Member 4: Conversation + Workflow + Viz
-"""
+"""Streamlit app for DS Mentor QA: hybrid retrieval, code generation, conversation management, and visualization."""
 import sys, base64
 from pathlib import Path
 import streamlit as st

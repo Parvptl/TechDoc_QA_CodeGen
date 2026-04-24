@@ -1,9 +1,4 @@
-"""
-PART 4 — VISUALIZATION EXECUTION MODULE
-Routes EDA queries (Stage 3) to safe code generation + execution.
-Returns matplotlib figure as base64 PNG or file path.
-Depends on: stage_classifier.predict_stage()
-"""
+"""Routes EDA queries to safe matplotlib/seaborn code generation and execution."""
 
 import io
 import re
